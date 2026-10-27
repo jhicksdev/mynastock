@@ -1,4 +1,4 @@
-@target(py)
+@target(py, js)
 
 NAME="MynaStock"
 VERSION="0.1.0"

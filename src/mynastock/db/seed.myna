@@ -1,0 +1,57 @@
+@target(py, js)
+<..core:{Result,ok}
+<..ports:{Repo}
+<..ids:{IdGen}
+<..app.service:{NewProduct,NewLocation,MoveCmd,create_product,create_location,post_movement}
+
+# Deterministic demo catalogue. IDs and timestamps are injected so tests and the
+# browser demo can reproduce the same state.
++@seed_demo(repo:Repo,now:s,ids:IdGen)->Result{
+  ?repo.product_by_sku("WID-001")!==N{^ok("already seeded")}
+
+  products=[
+    ["WID-001","Widget",250,5,20],
+    ["GAD-002","Gadget",1200,3,10],
+    ["BOL-003","Bolt",15,50,200],
+    ["NUT-004","Nut",10,50,200],
+    ["BOX-005","Box",80,10,40],
+    ["TAP-006","Tape",300,8,24],
+    ["LMP-007","Lamp",4500,2,6],
+    ["CHR-008","Chair",12000,2,4]
+  ]
+  %row<-products{
+    created=create_product(NewProduct(row[0],row[1],row[2],row[3],row[4]),repo,now,ids.next())
+    ?!created.ok{^created}
+  }
+
+  locations=[
+    ["WH1","Main warehouse","warehouse"],
+    ["BIN-A","Pick face A","bin"],
+    ["BIN-B","Pick face B","bin"]
+  ]
+  %row<-locations{
+    created=create_location(NewLocation(row[0],row[1],row[2]),repo,ids.next())
+    ?!created.ok{^created}
+  }
+
+  receipts=[
+    ["WID-001","WH1",40,250],
+    ["GAD-002","WH1",2,1200],
+    ["BOL-003","WH1",500,15],
+    ["NUT-004","WH1",500,10],
+    ["BOX-005","WH1",60,80],
+    ["TAP-006","WH1",30,300],
+    ["LMP-007","WH1",1,4500],
+    ["CHR-008","WH1",3,12000]
+  ]
+  %row<-receipts{
+    key=`seed-r-{ids.next()}`
+    posted=post_movement(MoveCmd("receive",row[0],row[1],"",row[2],row[3],N,N,"seed",key),repo,now,[ids.next(),ids.next(),ids.next()])
+    ?!posted.ok{^posted}
+  }
+
+  moved=post_movement(MoveCmd("transfer","WID-001","WH1","BIN-A",10,N,N,N,"seed",`seed-t-{ids.next()}`),repo,now,[ids.next(),ids.next(),ids.next()])
+  ?!moved.ok{^moved}
+
+  ^ok("seeded")
+}

@@ -1,0 +1,334 @@
+@target(py, js)
+<..core:{Err,Result,ok,fail,lookup,is_digits,concat}
+<..ports:{Repo}
+<..app.service:{NewProduct,NewLocation,UpdateProduct,MoveCmd,create_product,create_location,update_product,post_movement,stock_rows,reorder_rows,valuation}
+<..ids:{IdGen}
+<..version:{NAME,VERSION}
+<.request:{Request,Response}
+<.router:{Route,match}
+<.json:{parse}
+<.presenters:{json_response,problem}
+<.pagination:{sort_rows,page,limit_of}
+
+# ---------------------------------------------------------------------------
+# Response helpers
+# ---------------------------------------------------------------------------
+
++@_bad(code:s,message:s,field:s?=N)->Response{
+  ^problem(Err(code,message,field))
+}
+
++@_result(result:Result,status:i)->Response{
+  ?result.ok{^json_response(status,result.value)}
+  ^problem(result.error)
+}
+
++@_body(req:Request)->{s:A}?{
+  data=parse(req.body)
+  ?data===N{^N}
+  ?!(data :? {s:A}){^N}
+  ^data
+}
+
++@_read_str(data:{s:A},key:s,default:s,required:b)->Result{
+  ?key!<-data{
+    ?required{^fail("validation.failed",`{key} is required`,key)}
+    ^ok(default)
+  }
+  value=data[key]
+  ?!(value :? s){^fail("validation.failed",`{key} must be a string`,key)}
+  ^ok(value)
+}
+
++@_read_int(data:{s:A},key:s,default:i,required:b)->Result{
+  ?key!<-data{
+    ?required{^fail("validation.failed",`{key} is required`,key)}
+    ^ok(default)
+  }
+  value=data[key]
+  ?!(value :? i){^fail("validation.failed",`{key} must be an integer`,key)}
+  ?@int(value)!=value{^fail("validation.failed",`{key} must be an integer`,key)}
+  ^ok(@int(value))
+}
+
++@_read_opt_int(data:{s:A},key:s)->Result{
+  ?key!<-data{^ok(N)}
+  ^_read_int(data,key,0,T)
+}
+
++@_read_bool(data:{s:A},key:s,default:b)->Result{
+  ?key!<-data{^ok(default)}
+  value=data[key]
+  ?!(value :? b){^fail("validation.failed",`{key} must be a boolean`,key)}
+  ^ok(value)
+}
+
++@_read_opt_str(data:{s:A},key:s)->Result{
+  ?key!<-data{^ok(N)}
+  value=data[key]
+  ?!(value :? s){^fail("validation.failed",`{key} must be a string`,key)}
+  ^ok(value)
+}
+
++@_read_opt_bool(data:{s:A},key:s)->Result{
+  ?key!<-data{^ok(N)}
+  value=data[key]
+  ?!(value :? b){^fail("validation.failed",`{key} must be a boolean`,key)}
+  ^ok(value)
+}
+
++@_q(req:Request,key:s,default:s="")->s{
+  value=lookup(req.query,key)
+  ?value===N{^default}
+  ^value
+}
+
++@_if_match(req:Request)->i?{
+  raw=lookup(req.headers,"if-match")
+  ?raw===N{^N}
+  text=raw
+  ?#text>=2&&text[0]=="\""&&text[#text-1]=="\""{text=text[1:#text-1]}
+  ?#text>0&&text[0]=="v"{text=text[1:]}
+  ?!is_digits(text){^N}
+  ^@int(text)
+}
+
+# ---------------------------------------------------------------------------
+# Handlers
+# ---------------------------------------------------------------------------
+
++@_health(req:Request,params:{s:s},repo:Repo,now:s,ids:IdGen)->Response{
+  ^json_response(200,{status:"ok",name:NAME,version:VERSION})
+}
+
++@_list_products(req:Request,params:{s:s},repo:Repo,now:s,ids:IdGen)->Response{
+  query=_q(req,"q","")
+  active=_q(req,"active","")
+  rows=[]
+  %product<-repo.list_products(){
+    keep=T
+    ?#query>0&&!(query<-product.sku)&&!(query<-product.name){keep=F}
+    ?active=="true"&&!product.active{keep=F}
+    ?active=="false"&&product.active{keep=F}
+    ?keep{
+      rows.append({cursor:product.sku,id:product.id,sku:product.sku,name:product.name,uom:product.uom,unit_cost_cents:product.unit_cost_cents,reorder_point:product.reorder_point,reorder_qty:product.reorder_qty,active:product.active,version:product.version})
+    }
+  }
+  sorted=sort_rows(rows,"cursor")
+  ^json_response(200,page(sorted,_q(req,"cursor",""),limit_of(_q(req,"limit",""))))
+}
+
++@_create_product(req:Request,params:{s:s},repo:Repo,now:s,ids:IdGen)->Response{
+  data=_body(req)
+  ?data===N{^_bad("validation.failed","Request body must be a JSON object")}
+
+  sku=_read_str(data,"sku","",T);?!sku.ok{^problem(sku.error)}
+  name=_read_str(data,"name","",T);?!name.ok{^problem(name.error)}
+  uom=_read_str(data,"uom","ea",F);?!uom.ok{^problem(uom.error)}
+  cost=_read_int(data,"unit_cost_cents",0,F);?!cost.ok{^problem(cost.error)}
+  point=_read_int(data,"reorder_point",0,F);?!point.ok{^problem(point.error)}
+  reorder=_read_int(data,"reorder_qty",0,F);?!reorder.ok{^problem(reorder.error)}
+
+  result=create_product(NewProduct(sku.value,name.value,cost.value,point.value,reorder.value,uom.value),repo,now,ids.next())
+  ^_result(result,201)
+}
+
++@_update_product(req:Request,params:{s:s},repo:Repo,now:s,ids:IdGen)->Response{
+  id=lookup(params,"id")
+  ?id===N{^_bad("validation.failed","Product id is required","id")}
+  expected=_if_match(req)
+  ?expected===N{^_bad("validation.failed","An If-Match header with the current version is required","version")}
+  current=repo.product_by_id(id)
+  ?current===N{^_bad("product.unknown",`No product with id {id}`,"id")}
+  data=_body(req)
+  ?data===N{^_bad("validation.failed","Request body must be a JSON object")}
+
+  sku_raw=_read_opt_str(data,"sku");?!sku_raw.ok{^problem(sku_raw.error)}
+  name_raw=_read_opt_str(data,"name");?!name_raw.ok{^problem(name_raw.error)}
+  uom_raw=_read_opt_str(data,"uom");?!uom_raw.ok{^problem(uom_raw.error)}
+  cost_raw=_read_opt_int(data,"unit_cost_cents");?!cost_raw.ok{^problem(cost_raw.error)}
+  point_raw=_read_opt_int(data,"reorder_point");?!point_raw.ok{^problem(point_raw.error)}
+  reorder_raw=_read_opt_int(data,"reorder_qty");?!reorder_raw.ok{^problem(reorder_raw.error)}
+  active_raw=_read_opt_bool(data,"active");?!active_raw.ok{^problem(active_raw.error)}
+
+  sku=current.sku
+  ?sku_raw.value!==N{sku=sku_raw.value}
+  name=current.name
+  ?name_raw.value!==N{name=name_raw.value}
+  uom=current.uom
+  ?uom_raw.value!==N{uom=uom_raw.value}
+  cost=current.unit_cost_cents
+  ?cost_raw.value!==N{cost=cost_raw.value}
+  point=current.reorder_point
+  ?point_raw.value!==N{point=point_raw.value}
+  reorder=current.reorder_qty
+  ?reorder_raw.value!==N{reorder=reorder_raw.value}
+  active=current.active
+  ?active_raw.value!==N{active=active_raw.value}
+
+  result=update_product(UpdateProduct(id,sku,name,cost,point,reorder,uom,active,expected),repo,now)
+  ^_result(result,200)
+}
+
++@_list_locations(req:Request,params:{s:s},repo:Repo,now:s,ids:IdGen)->Response{
+  rows=[]
+  %location<-repo.list_locations(){
+    rows.append({cursor:location.code,id:location.id,code:location.code,name:location.name,kind:location.kind,active:location.active})
+  }
+  sorted=sort_rows(rows,"cursor")
+  ^json_response(200,page(sorted,_q(req,"cursor",""),limit_of(_q(req,"limit",""))))
+}
+
++@_create_location(req:Request,params:{s:s},repo:Repo,now:s,ids:IdGen)->Response{
+  data=_body(req)
+  ?data===N{^_bad("validation.failed","Request body must be a JSON object")}
+  code=_read_str(data,"code","",T);?!code.ok{^problem(code.error)}
+  name=_read_str(data,"name","",T);?!name.ok{^problem(name.error)}
+  kind=_read_str(data,"kind","bin",F);?!kind.ok{^problem(kind.error)}
+  result=create_location(NewLocation(code.value,name.value,kind.value),repo,ids.next())
+  ^_result(result,201)
+}
+
++@_post_movement(req:Request,params:{s:s},repo:Repo,now:s,ids:IdGen)->Response{
+  key=lookup(req.headers,"idempotency-key")
+  ?key===N||key==""{^_bad("idempotency.required","An Idempotency-Key header is required")}
+  data=_body(req)
+  ?data===N{^_bad("validation.failed","Request body must be a JSON object")}
+
+  kind=_read_str(data,"type","",T);?!kind.ok{^problem(kind.error)}
+  sku=_read_str(data,"sku","",T);?!sku.ok{^problem(sku.error)}
+  location=_read_str(data,"location","",F);?!location.ok{^problem(location.error)}
+  destination=_read_str(data,"to_location","",F);?!destination.ok{^problem(destination.error)}
+  qty=_read_int(data,"qty",0,T);?!qty.ok{^problem(qty.error)}
+  cost=_read_opt_int(data,"unit_cost_cents");?!cost.ok{^problem(cost.error)}
+  reason_value=_read_opt_str(data,"reason");?!reason_value.ok{^problem(reason_value.error)}
+  reference_value=_read_opt_str(data,"reference");?!reference_value.ok{^problem(reference_value.error)}
+
+  command=MoveCmd(kind.value,sku.value,location.value,destination.value,qty.value,cost.value,reason_value.value,reference_value.value,"api",key)
+  result=post_movement(command,repo,now,[ids.next(),ids.next(),ids.next()])
+  ?!result.ok{^problem(result.error)}
+  response=json_response(201,result.value)
+  ?result.value$replayed{
+    response.status=200
+    response.headers["Idempotent-Replay"]="true"
+  }
+  ^response
+}
+
++@_stock(req:Request,params:{s:s},repo:Repo,now:s,ids:IdGen)->Response{
+  query=_q(req,"q","")
+  location=_q(req,"location","")
+  below=_q(req,"below_reorder","")
+  rows=[]
+  %row<-stock_rows(repo).value{
+    keep=T
+    ?#query>0&&!(query<-row$sku)&&!(query<-row$product){keep=F}
+    ?#location>0&&row$location!=location{keep=F}
+    ?below=="true"&&row$status=="ok"{keep=F}
+    ?keep{
+      row["cursor"]=row$sku+"|"+row$location
+      rows.append(row)
+    }
+  }
+  sorted=sort_rows(rows,"cursor")
+  ^json_response(200,page(sorted,_q(req,"cursor",""),limit_of(_q(req,"limit",""))))
+}
+
++@_movements(req:Request,params:{s:s},repo:Repo,now:s,ids:IdGen)->Response{
+  sku_filter=_q(req,"sku","")
+  location_filter=_q(req,"location","")
+  type_filter=_q(req,"type","")
+  from_time=_q(req,"from","")
+  to_time=_q(req,"to","")
+
+  products=repo.list_products()
+  locations=repo.list_locations()
+  by_product={product.id: product | product <- products}
+  by_location={location.id: location | location <- locations}
+
+  rows=[]
+  %movement<-repo.list_movements(){
+    product=lookup(by_product,movement.product_id)
+    location=lookup(by_location,movement.location_id)
+    movement_sku=""
+    ?product!==N{movement_sku=product.sku}
+    movement_location=""
+    ?location!==N{movement_location=location.code}
+    keep=T
+    ?#sku_filter>0&&movement_sku!=sku_filter{keep=F}
+    ?#location_filter>0&&movement_location!=location_filter{keep=F}
+    ?#type_filter>0&&movement.type!=type_filter{keep=F}
+    ?#from_time>0&&movement.occurred_at<from_time{keep=F}
+    ?#to_time>0&&movement.occurred_at>to_time{keep=F}
+    ?keep{
+      rows.append({cursor:movement.occurred_at+"|"+movement.id,id:movement.id,type:movement.type,sku:movement_sku,location:movement_location,qty_delta:movement.qty_delta,unit_cost_cents:movement.unit_cost_cents,transfer_id:movement.transfer_id,reason:movement.reason,actor:movement.actor,occurred_at:movement.occurred_at})
+    }
+  }
+  sorted=sort_rows(rows,"cursor",T)
+  ^json_response(200,page(sorted,_q(req,"cursor",""),limit_of(_q(req,"limit","")),T))
+}
+
++@_reorder(req:Request,params:{s:s},repo:Repo,now:s,ids:IdGen)->Response{
+  rows=[]
+  %row<-reorder_rows(repo).value{
+    row["cursor"]=row$sku+"|"+row$location
+    rows.append(row)
+  }
+  sorted=sort_rows(rows,"cursor")
+  ^json_response(200,page(sorted,_q(req,"cursor",""),limit_of(_q(req,"limit",""))))
+}
+
++@_valuation(req:Request,params:{s:s},repo:Repo,now:s,ids:IdGen)->Response{
+  group=_q(req,"group_by","product")
+  result=valuation(repo,group)
+  ?!result.ok{^problem(result.error)}
+  report=result.value
+  by_product={product.id: product | product <- repo.list_products()}
+  by_location={location.id: location | location <- repo.list_locations()}
+  items=[]
+  %item<-report$items{
+    label=item$key
+    ?group=="product"{
+      product=lookup(by_product,item$key)
+      ?product!==N{label=product.sku}
+    }:{
+      location=lookup(by_location,item$key)
+      ?location!==N{label=location.code}
+    }
+    items.append({key:label,qty:item$qty,value_cents:item$value_cents})
+  }
+  ^json_response(200,{group_by:group,total_cents:report$total_cents,items:items})
+}
+
+# ---------------------------------------------------------------------------
+# Route table and dispatch
+# ---------------------------------------------------------------------------
+
++@routes->[Route]{
+  ^[
+    Route("GET",["api","v1","health"],_health),
+    Route("GET",["api","v1","products"],_list_products),
+    Route("POST",["api","v1","products"],_create_product),
+    Route("PATCH",["api","v1","products","{id}"],_update_product),
+    Route("GET",["api","v1","locations"],_list_locations),
+    Route("POST",["api","v1","locations"],_create_location),
+    Route("POST",["api","v1","movements"],_post_movement),
+    Route("GET",["api","v1","stock"],_stock),
+    Route("GET",["api","v1","movements"],_movements),
+    Route("GET",["api","v1","reports","reorder"],_reorder),
+    Route("GET",["api","v1","reports","valuation"],_valuation)
+  ]
+}
+
++@dispatch(req:Request,repo:Repo,now:s,ids:IdGen)->Response{
+  found=match(req.method,req.path,routes())
+  ?found.route===N{
+    ?#found.allowed>0{
+      response=problem(Err("method.not_allowed",`Method {req.method} is not allowed for {req.path}`))
+      response.headers["Allow"]=concat(found.allowed,", ")
+      ^response
+    }
+    ^problem(Err("route.not_found",`No route for {req.path}`))
+  }
+  ^found.route.handler(req,found.params,repo,now,ids)
+}

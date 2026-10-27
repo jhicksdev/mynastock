@@ -1,0 +1,13 @@
+@target(py, js)
+# The single audited exception boundary in portable code. JSON parse failures are
+# host errors with no portable non-throwing API; a bare handler behaves identically
+# in Python (`except Exception`) and JS (`catch`). See ADR-0001 and
+# tools/exceptional.txt. Do not add another exception boundary without a parity test.
+
++@parse(text:s)->A?{
+  !{
+    ^@j(text)
+  }!!e{
+    ^N
+  }
+}

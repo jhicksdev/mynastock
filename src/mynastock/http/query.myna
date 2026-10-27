@@ -1,0 +1,35 @@
+@target(py, js)
+<..core:{concat}
+
++@split_text(text:s,sep:s)->[s]{
+  parts=[]
+  current=""
+  %i<-.. #text{
+    c=text[i]
+    ?c==sep{
+      parts.append(current)
+      current=""
+    }:{
+      current+=c
+    }
+  }
+  parts.append(current)
+  ^parts
+}
+
+# Query values are returned raw. Percent-decoding has no single portable spelling,
+# and v1 only needs ASCII codes, booleans, numbers, and ISO timestamps.
++@parse_query(raw:s)->{s:s}{
+  out={}
+  ?#raw==0{^out}
+  %pair<-split_text(raw,"&"){
+    ?#pair>0{
+      kv=split_text(pair,"=")
+      key=kv[0]
+      value=""
+      ?#kv>1{value=concat(kv[1:],"=")}
+      ?#key>0{out[key]=value}
+    }
+  }
+  ^out
+}

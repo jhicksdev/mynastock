@@ -43,6 +43,8 @@ jobs:
       - run: pip install myna-lang==0.4.2 ruff
       - run: make test-py
       - run: make lint-py RUFF=ruff
+      - run: make selftest
+      - run: make zipapp-smoke
 
   test-js:
     needs: lint

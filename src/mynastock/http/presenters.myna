@@ -1,0 +1,36 @@
+@target(py, js)
+<..core:{Err}
+<.request:{Response}
+
++@json_response(status:i,payload:A)->Response{
+  ^Response(status,{"Content-Type":"application/json; charset=utf-8"},@J(payload))
+}
+
++@problem(err:Err)->Response{
+  status=status_for(err.code)
+  body={type:"about:blank",title:reason(status),status:status,detail:err.message,code:err.code,field:err.field}
+  ?err.meta!==N{body["meta"]=err.meta}
+  ^Response(status,{"Content-Type":"application/problem+json; charset=utf-8"},@J(body))
+}
+
++@status_for(code:s)->i{
+  ?code=="product.unknown"||code=="location.unknown"||code=="route.not_found"{^404}
+  ?code=="method.not_allowed"{^405}
+  ?code=="version.conflict"||code=="movement.idempotency_conflict"||code=="stock.insufficient"||code=="product.duplicate_sku"||code=="location.duplicate_code"||code=="product.inactive"{^409}
+  ?code=="internal.error"||code=="repo.error"{^500}
+  ^400
+}
+
++@reason(status:i)->s{
+  ??status{
+    200=>{^"OK"}
+    201=>{^"Created"}
+    400=>{^"Bad Request"}
+    404=>{^"Not Found"}
+    405=>{^"Method Not Allowed"}
+    409=>{^"Conflict"}
+    422=>{^"Unprocessable Entity"}
+    500=>{^"Internal Server Error"}
+    _=>{^"Error"}
+  }
+}

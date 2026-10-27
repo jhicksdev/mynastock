@@ -4,14 +4,15 @@ NODE ?= node
 RUFF ?= uvx ruff
 BUILD ?= build
 
-.PHONY: check lint lint-py test-py test-js build-py js-portable run clean
+.PHONY: check lint lint-py test-py test-js build-py js-portable run selftest serve zipapp zipapp-smoke clean
 
-check: lint test-py lint-py test-js
+check: lint test-py lint-py test-js selftest zipapp-smoke
 
 lint:
 	@bash tools/check_targets.sh
 	@bash tools/check_portable.sh
 	@python3 tools/check_imports.py
+	@python3 tools/check_collisions.py
 
 build-py:
 	@rm -rf $(BUILD)/py
@@ -45,6 +46,20 @@ test-js: js-portable
 
 run:
 	@$(MYNA) run src/mynastock/main.myna
+
+selftest:
+	@$(MYNA) run src/mynastock/cli.myna --selftest
+
+serve:
+	@mkdir -p $(BUILD)
+	@$(MYNA) run src/mynastock/cli.myna serve --db $(BUILD)/mynastock.db $(ARGS)
+
+zipapp:
+	@mkdir -p $(BUILD)
+	@$(MYNA) bundle src/mynastock/cli.myna --zipapp -o $(BUILD)/mynastock.pyz
+
+zipapp-smoke: zipapp
+	@$(PYTHON) -I $(BUILD)/mynastock.pyz --selftest
 
 clean:
 	@rm -rf $(BUILD)

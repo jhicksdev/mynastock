@@ -10,11 +10,14 @@
 ## Everyday commands
 
 ```bash
-make check        # lint + Python tests + generated-Python lint + JS parity
-make lint         # target declarations, forbidden constructs, portable-import edges
+make check        # everything below: 65 Python tests, JS parity, zipapp smoke
+make lint         # target declarations, forbidden constructs, imports, name collisions
 make test-py      # compile to build/py and run unittest
 make lint-py      # ruff over the generated Python (syntax and undefined names only)
 make test-js      # assemble the portable modules, compile to ES, run node --test
+make selftest     # the full request pipeline, in memory
+make serve        # SQLite at build/mynastock.db on 127.0.0.1:8080
+make zipapp-smoke # python -I build/mynastock.pyz --selftest
 make clean
 ```
 
@@ -44,10 +47,16 @@ Three pitfalls that cost real debugging time, now covered by tests:
 - `d$?k` uses the **literal** key `"k"`. Dynamic keys go through `lookup(d, k)`.
 - Never name a variable or parameter `p`: myna 0.4.1 and 0.4.2 rewrite it to the print
   alias in JS (`__myna_print`) while Python keeps the local binding.
+- A local variable must not share a name with a module-level function or class. JS emits
+  an unscoped assignment and overwrites the outer binding; `check_collisions.py` blocks it.
+- Do not use Python keywords (`from`, `class`, `import`) as identifiers, and do not shadow
+  auto-imported module names (`json`, `datetime`, `sys`).
 - A subclass `@init` must call `..init()` before touching `self`; the JS target needs
   `super()` first.
 - Myna does not check call arity. Extra positional arguments are silently ignored, so a
   shifted argument list can only be caught by tests.
+- Parse failures are the one exception boundary (`http/json.myna`). Adding another
+  requires an entry in `tools/exceptional.txt` and a parity test.
 
 If a language limitation forces a workaround, document it in the ADR or a comment, and
 link the upstream issue. Do not widen the portable zone silently.

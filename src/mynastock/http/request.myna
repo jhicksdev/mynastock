@@ -1,0 +1,4 @@
+@target(py, js)
+
++$$Request(method:s,path:s,query:{s:s},headers:{s:s},body:s="")
++$$Response(status:i,headers:{s:s},body:s)

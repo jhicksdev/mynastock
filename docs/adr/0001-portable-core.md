@@ -39,7 +39,9 @@ The laws:
    values: `$$Err(code, message, field, meta)` and `$$Result(ok, value, error)`. 0.4.1+
    can emulate exceptions, but relying on that shim would tie domain flow to a class
    hierarchy the JS backend only approximates; explicit results are identical on both
-   hosts and free of transport concerns.
+   hosts and free of transport concerns. One audited boundary exists:
+   `http/json.myna` uses a bare try/catch around `@j`, is listed in
+   `tools/exceptional.txt`, and has invalid-input parity tests.
 3. No host libraries (no `datetime`, `json`, `sqlite3`, `abc`, `uuid`). Builtins `@J`,
    `@j`, `@int`, `@str` are allowed; time, IDs, and storage are injected.
 4. Money is integer cents; quantities are whole units. Values stay under `2^53`.
@@ -61,6 +63,8 @@ Enforcement:
   assembled artifact, because per-file JS compilation rejects relative imports.
 - `tools/check_portable.sh` rejects exception syntax and `new`.
 - `tools/check_imports.py` rejects absolute imports and imports of non-portable modules.
+- `tools/check_collisions.py` rejects locals that shadow a module-level name (see below).
+- `tools/exceptional.txt` lists the audited exception boundary.
 - `tools/assemble.py` produces the single JS compilable file, refusing duplicate
   top-level names.
 - `tests/js/parity.test.mjs` executes the same cases as the Python suites, including a
@@ -83,6 +87,14 @@ Pitfalls discovered while building M1 (all verified, all now covered by tests):
   artifact, not each source module.
 - The local toolchain matters: myna 0.4.0 and 0.4.1+ differ in JS code generation. Always
   verify against the pinned version, which is what CI installs.
+- A local variable that matches a module-level name is emitted as an unscoped assignment
+  in JS (`reason = ...`), overwriting the function even when it lives in another module.
+  Because the assembler merges modules, this crosses boundaries. `check_collisions.py`
+  rejects it; Python's scoping hides the bug, so only the JS parity suite catches it.
+- Python keywords cannot be identifiers: `from` produced invalid Python. Use `from_time`.
+- Do not shadow names that `@J`/`@j` auto-import (`json`, `dataclasses`, `datetime`,
+  `sys`). A presenter function named `json` shadowed the module and broke every response.
+  `make lint-py` (undefined-name checks) is the safety net for missing imports.
 
 ## Consequences
 

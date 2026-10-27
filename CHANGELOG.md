@@ -29,6 +29,24 @@ All notable changes to this project are documented here. The format follows
 - `tools/assemble.py`: single-file JS assembly plus a service-level Node parity scenario.
 - ADR-0002 (ledger and costing) and ADR-0003 (JS assembly).
 
+- M2 HTTP pipeline: portable `Request`/`Response`, table-driven router with path
+  parameters and 405/`Allow`, query parsing, RFC 9457 problem responses, keyset
+  pagination, and PATCH merge guarded by `If-Match`.
+- `POST /movements` transport: required `Idempotency-Key`, replay `200` plus
+  `Idempotent-Replay`, and a `replayed` flag in the body.
+- Stdlib `ThreadingHTTPServer` adapter with a single repository lock, request logging,
+  and a transport-free handler layer.
+- CLI (`serve`, `seed`, `--selftest`, `version`) and in-memory end-to-end selftest.
+- Zero-install `mynastock.pyz` built with `myna bundle --zipapp` and verified under
+  `python -I` in CI.
+- Seed catalogue with low-stock, transfer, and valuation cases.
+- 26 new tests (68 total) covering router, query, JSON, pagination, handlers, and the same
+  API suite against both memory and SQLite; Node parity now exercises the full HTTP
+  pipeline.
+- ADR-0004 (HTTP contract) and `docs/api.md`.
+- `check_collisions.py`: rejects locals that shadow module-level names, a JS-only scoping
+  bug found by the parity suite.
+
 ### Changed
 
 - Pinned `myna-lang==0.4.2`. Generated Python and JavaScript are byte-identical to the

@@ -1,0 +1,55 @@
+@target(py, js)
+<..core:{lookup,is_digits}
+
+# Rows carry a string "cursor" field. ASCII cursors (ISO timestamps, SKUs) compare
+# identically in Python and JS.
++@sort_rows(rows:[{s:A}],field:s,descending:b=F)->[{s:A}]{
+  out=[]
+  %row<-rows{
+    left=lookup(row,field)
+    position=#out
+    %i<-.. #out{
+      existing=lookup(out[i],field)
+      ?position==#out{
+        ?!descending&&existing>left{position=i}
+        ?descending&&existing<left{position=i}
+      }
+    }
+    merged=[]
+    %i<-.. #out{
+      ?i==position{merged.append(row)}
+      merged.append(out[i])
+    }
+    ?position==#out{merged.append(row)}
+    out=merged
+  }
+  ^out
+}
+
++@page(rows:[{s:A}],cursor:s,limit:i,descending:b=F)->{s:A}{
+  remaining=[]
+  %row<-rows{
+    keep=cursor==""
+    ?!keep&&!descending&&lookup(row,"cursor")>cursor{keep=T}
+    ?!keep&&descending&&lookup(row,"cursor")<cursor{keep=T}
+    ?keep{remaining.append(row)}
+  }
+  items=[]
+  %i<-.. #remaining{
+    ?i<limit{items.append(remaining[i])}
+  }
+  next_cursor=N
+  ?#remaining>limit{
+    ?#items>0{next_cursor=lookup(items[#items-1],"cursor")}
+  }
+  ^ {items:items,next_cursor:next_cursor}
+}
+
++@limit_of(raw:s,default:i=50,max:i=200)->i{
+  ?#raw==0{^default}
+  ?!is_digits(raw){^default}
+  value=@int(raw)
+  ?value<1{^default}
+  ?value>max{^max}
+  ^value
+}

@@ -1,4 +1,14 @@
+src/mynastock/version.myna
+src/mynastock/ids.myna
 src/mynastock/core.myna
 src/mynastock/ports.myna
 src/mynastock/app/service.myna
+src/mynastock/db/seed.myna
+src/mynastock/http/request.myna
+src/mynastock/http/json.myna
+src/mynastock/http/query.myna
+src/mynastock/http/pagination.myna
+src/mynastock/http/presenters.myna
+src/mynastock/http/router.myna
+src/mynastock/http/handlers.myna
 src/mynastock/adapters/memory.myna

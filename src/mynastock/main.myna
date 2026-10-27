@@ -1,7 +1,7 @@
 @target(py)
-<.version:{NAME,VERSION}
+<sys
+<.cli:{run}
 
 @main{
-  p(`{NAME} {VERSION} - M0 scaffold`)
-  p("Run `make check` for the gates, or `myna run src/mynastock/cli.myna version`.")
+  sys.exit(run(sys.argv[1:]))
 }

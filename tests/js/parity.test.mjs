@@ -24,7 +24,10 @@ import {
   stock_rows,
   reorder_rows,
   valuation,
+  Request,
+  dispatch,
   new_memory_repo,
+  new_seq_gen,
 } from "../../build/js/portable.mjs";
 
 test("concat", () => {
@@ -137,7 +140,9 @@ test("service scenario matches Python", () => {
     "t2",
     ["o9", "m8", "m7"],
   );
-  assert.deepEqual(replay.value, receive.value);
+  assert.equal(replay.value.operation_id, receive.value.operation_id);
+  assert.equal(receive.value.replayed, false);
+  assert.equal(replay.value.replayed, true);
 
   const conflict = post_movement(
     new MoveCmd("receive", "WID-001", "WH1", "", 11, 250, null, null, "tester", "k1"),
@@ -180,4 +185,80 @@ test("service scenario matches Python", () => {
   assert.equal(denied.ok, false);
   assert.equal(denied.error.code, "stock.insufficient");
   assert.equal(repo.list_movements().length, 3);
+});
+
+test("http pipeline matches Python", () => {
+  const repo = new_memory_repo();
+  const ids = new_seq_gen("t");
+  const now = "2026-01-01T00:00:00Z";
+  const call = (method, path, body, headers, query) =>
+    dispatch(
+      new Request(method, path, query || {}, headers || {}, body === undefined ? "" : JSON.stringify(body)),
+      repo,
+      now,
+      ids,
+    );
+
+  assert.equal(call("GET", "/api/v1/health").status, 200);
+  assert.equal(
+    call("POST", "/api/v1/products", {
+      sku: "WID-001",
+      name: "Widget",
+      unit_cost_cents: 250,
+      reorder_point: 5,
+      reorder_qty: 20,
+    }).status,
+    201,
+  );
+  assert.equal(call("POST", "/api/v1/locations", { code: "WH1", name: "Main", kind: "warehouse" }).status, 201);
+  assert.equal(call("POST", "/api/v1/locations", { code: "BIN-A", name: "Bin A" }).status, 201);
+
+  const body = { type: "receive", sku: "WID-001", location: "WH1", qty: 10, unit_cost_cents: 250 };
+  const headers = { "idempotency-key": "k1" };
+  assert.equal(call("POST", "/api/v1/movements", body, headers).status, 201);
+
+  const replay = call("POST", "/api/v1/movements", body, headers);
+  assert.equal(replay.status, 200);
+  assert.equal(replay.headers["Idempotent-Replay"], "true");
+  assert.equal(JSON.parse(replay.body).replayed, true);
+
+  const stock = JSON.parse(call("GET", "/api/v1/stock").body);
+  assert.equal(stock.items.length, 1);
+  assert.equal(stock.items[0].on_hand, 10);
+
+  const product = JSON.parse(call("GET", "/api/v1/products").body).items[0];
+  const patched = call(
+    "PATCH",
+    `/api/v1/products/${product.id}`,
+    { name: "Widget v2" },
+    { "if-match": '"1"' },
+  );
+  assert.equal(patched.status, 200);
+  assert.equal(JSON.parse(patched.body).unit_cost_cents, 250);
+  assert.equal(JSON.parse(patched.body).version, 2);
+
+  const stale = call(
+    "PATCH",
+    `/api/v1/products/${product.id}`,
+    { name: "Stale" },
+    { "if-match": '"1"' },
+  );
+  assert.equal(stale.status, 409);
+
+  const transfer = call(
+    "POST",
+    "/api/v1/movements",
+    { type: "transfer", sku: "WID-001", location: "WH1", to_location: "BIN-A", qty: 7 },
+    { "idempotency-key": "k2" },
+  );
+  assert.equal(transfer.status, 201);
+
+  const low = JSON.parse(call("GET", "/api/v1/stock", undefined, undefined, { below_reorder: "true" }).body);
+  assert.equal(low.items.length, 1);
+  assert.equal(low.items[0].location, "WH1");
+
+  assert.equal(call("GET", "/api/v1/nope").status, 404);
+  const wrong = call("POST", "/api/v1/health");
+  assert.equal(wrong.status, 405);
+  assert.equal(wrong.headers.Allow, "GET");
 });

@@ -1,20 +1,72 @@
 @target(py)
 <sys
 <.version:{NAME,VERSION}
+<.core:{is_digits}
+<.clock:{now_iso}
+<.ids:{new_seq_gen}
+<.adapters.sqlite:{SqliteRepo}
+<.adapters.stdlib_server:{serve}
+<.db.seed:{seed_demo}
+<.selftest:{selftest}
 
-@usage{
++@usage{
   p(`{NAME} {VERSION}`)
-  p("usage: mynastock [version|selftest]")
+  p("usage: mynastock <serve|seed|--selftest|version> [--db PATH] [--port N]")
+}
+
++@_option(args:[s],name:s,default:s)->s{
+  value=default
+  %i<-.. #args{
+    ?i+1<#args&&args[i]==name{value=args[i+1]}
+  }
+  ^value
+}
+
++@run(args:[s])->i{
+  command=""
+  ?#args>0{command=args[0]}
+  ??command{
+    "version"=>{
+      p(VERSION)
+      ^0
+    }
+    "serve"=>{
+      db=_option(args,"--db","mynastock.db")
+      raw_port=_option(args,"--port","8080")
+      ?!is_digits(raw_port){
+        p("--port must be an integer")
+        ^2
+      }
+      port=@int(raw_port)
+      ?port<1||port>65535{
+        p("--port must be between 1 and 65535")
+        ^2
+      }
+      repo=SqliteRepo(db)
+      serve(repo,"127.0.0.1",port)
+      ^0
+    }
+    "seed"=>{
+      db=_option(args,"--db","mynastock.db")
+      repo=SqliteRepo(db)
+      result=seed_demo(repo,now_iso(),new_seq_gen("seed"))
+      ?!result.ok{
+        p(`seed failed: {result.error.code} - {result.error.message}`)
+        ^1
+      }
+      p(`seeded demo catalogue in {db}`)
+      ^0
+    }
+    "--selftest"=>{
+      ^selftest()
+    }
+    _=>{
+      usage()
+      ^2
+    }
+  }
 }
 
 @main{
-  args=sys.argv[1:]
-  ?#args==0{usage()}
-  :{
-    ??args[0]{
-      "version"=>{p(VERSION)}
-      "selftest"=>{p("M0 scaffold: run `make check`")}
-      _=>{usage()}
-    }
-  }
+  sys.exit(run(sys.argv[1:]))
 }

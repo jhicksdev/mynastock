@@ -151,7 +151,9 @@ $ServiceTests<unittest.TestCase{
     !?first.ok
     replay=._move("receive","WID-001","WH1",10,"same-key",cost=250)
     !?replay.ok
-    self.assertEqual(first.value,replay.value)
+    self.assertEqual(first.value$operation_id,replay.value$operation_id)
+    !?!first.value$replayed
+    !?replay.value$replayed
     self.assertEqual(#.repo.list_movements(),1)
 
     conflict=._move("receive","WID-001","WH1",11,"same-key",cost=250)

@@ -1,0 +1,104 @@
+@target(py)
+<threading
+<uuid
+<http.server:{ThreadingHTTPServer,BaseHTTPRequestHandler}
+<..core:{Err,lookup}
+<..ids:{IdGen}
+<..version:{NAME,VERSION}
+<..clock:{now_iso}
+<..http.request:{Request,Response}
+<..http.handlers:{dispatch}
+<..http.query:{parse_query}
+<..http.presenters:{problem}
+
+$UuidGen<IdGen{
+  @init{..init()}
+  @next->s{^@str(uuid.uuid4())}
+}
+
+# The stdlib adapter is single-tenant: one repository, one lock, one ID source.
+STATE={"repo":N}
+LOCK=threading.Lock()
+UUIDS=UuidGen()
+
+$ApiHandler<BaseHTTPRequestHandler{
+  @log_message(fmt,*args){_}
+
+  @_request->Request{
+    target=.path
+    qpos=-1
+    %i<-.. #target{
+      ?qpos<0&&target[i]=="?"{qpos=i}
+    }
+    path=target
+    query={}
+    ?qpos>=0{
+      path=target[0:qpos]
+      query=parse_query(target[qpos+1:])
+    }
+    headers={}
+    %name,value<-.headers.items(){
+      headers[name.lower()]=value
+    }
+    length=0
+    raw_length=.headers.get("Content-Length","0")
+    !{
+      length=@int(raw_length)
+    }!!:ValueError{
+      length=0
+    }
+    body=""
+    ?length>0{
+      body=.rfile.read(length).decode("utf-8")
+    }
+    ^Request(.command,path,query,headers,body)
+  }
+
+  @_send(response:Response){
+    body=@u8(response.body)
+    .send_response(response.status)
+    %name,value<-response.headers.items(){
+      .send_header(name,value)
+    }
+    .send_header("Content-Length",@str(#body))
+    .end_headers()
+    .wfile.write(body)
+  }
+
+  @_handle{
+    response=N
+    request=N
+    !{
+      request=._request()
+      !&LOCK{
+        response=dispatch(request,STATE$repo,now_iso(),UUIDS)
+      }
+    }!!e{
+      response=problem(Err("internal.error",@str(e)))
+    }
+    ?request!==N{
+      p(`{request.method} {request.path} -> {response.status}`)
+    }
+    ._send(response)
+  }
+
+  @do_GET{._handle()}
+  @do_POST{._handle()}
+  @do_PATCH{._handle()}
+  @do_PUT{._handle()}
+  @do_DELETE{._handle()}
+}
+
++@serve(repo:A,host:s="127.0.0.1",port:i=8080){
+  STATE["repo"]=repo
+  server=ThreadingHTTPServer((host,port),ApiHandler)
+  p(`{NAME} {VERSION} listening on http://{host}:{port}`)
+  !{
+    server.serve_forever()
+  }!!:KeyboardInterrupt{
+    p("")
+    p("stopping")
+  }!:{
+    server.server_close()
+  }
+}

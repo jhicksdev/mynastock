@@ -69,7 +69,11 @@
   fp=fingerprint([cmd.type,cmd.sku,cmd.location,cmd.to_location,@str(cmd.qty),cost_text,cmd.reason??"",cmd.reference??""])
   previous=repo.find_operation(cmd.idempotency_key)
   ?previous!==N{
-    ?previous.request_fingerprint==fp{^ok(@j(previous.response_json))}
+    ?previous.request_fingerprint==fp{
+      replay=@j(previous.response_json)
+      replay["replayed"]=T
+      ^ok(replay)
+    }
     ^fail("movement.idempotency_conflict","This Idempotency-Key was used with a different request")
   }
   product=repo.product_by_sku(cmd.sku)
@@ -85,7 +89,7 @@
     leg=plan.legs[i]
     movements.append(Movement(ids[i+1],ids[0],_movement_type(cmd.type,i),product.id,leg.location_id,leg.qty_delta,leg.unit_cost_cents,transfer_id,cmd.reason,cmd.actor,now))
   }
-  response={operation_id:ids[0],type:cmd.type,sku:product.sku,movements:[m.to_dict()|m<-movements],levels:[l.to_dict()|l<-plan.levels]}
+  response={operation_id:ids[0],type:cmd.type,sku:product.sku,movements:[m.to_dict()|m<-movements],levels:[l.to_dict()|l<-plan.levels],replayed:F}
   operation=Operation(ids[0],cmd.idempotency_key,fp,@J(response),now)
   applied=repo.apply(operation,movements,plan.levels)
   ?!applied.ok{^applied}

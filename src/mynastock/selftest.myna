@@ -1,0 +1,55 @@
+@target(py)
+<.core:{lookup}
+<.version:{NAME,VERSION}
+<.ids:{new_seq_gen}
+<.http.request:{Request}
+<.http.handlers:{dispatch}
+<.adapters.memory:{new_memory_repo}
+
+# Runs the real request pipeline in memory. Used by `make zipapp-smoke` and the
+# container health check; it never binds a socket.
++@selftest->i{
+  repo=new_memory_repo()
+  ids=new_seq_gen("t")
+  now="2026-01-01T00:00:00Z"
+  failures=0
+  headers={"content-type":"application/json"}
+  movement_headers={"content-type":"application/json","idempotency-key":"selftest-1"}
+
+  health=dispatch(Request("GET","/api/v1/health",{},{},""),repo,now,ids)
+  ?health.status!=200{failures+=1;p(`health: expected 200, got {health.status}`)}
+
+  product=dispatch(Request("POST","/api/v1/products",{},headers,@J({sku:"WID-001",name:"Widget",unit_cost_cents:250,reorder_point:5,reorder_qty:20})),repo,now,ids)
+  ?product.status!=201{failures+=1;p(`create product: expected 201, got {product.status}`)}
+
+  location=dispatch(Request("POST","/api/v1/locations",{},headers,@J({code:"WH1",name:"Main",kind:"warehouse"})),repo,now,ids)
+  ?location.status!=201{failures+=1;p(`create location: expected 201, got {location.status}`)}
+
+  receive_body=@J({type:"receive",sku:"WID-001",location:"WH1",qty:10,unit_cost_cents:250})
+  receive=dispatch(Request("POST","/api/v1/movements",{},movement_headers,receive_body),repo,now,ids)
+  ?receive.status!=201{failures+=1;p(`receive: expected 201, got {receive.status}`)}
+
+  replay=dispatch(Request("POST","/api/v1/movements",{},movement_headers,receive_body),repo,now,ids)
+  ?replay.status!=200{failures+=1;p(`replay: expected 200, got {replay.status}`)}
+  ?lookup(replay.headers,"Idempotent-Replay")!="true"{failures+=1;p("replay: missing Idempotent-Replay header")}
+
+  stock=dispatch(Request("GET","/api/v1/stock",{},{},""),repo,now,ids)
+  ?stock.status!=200{failures+=1;p(`stock: expected 200, got {stock.status}`)}
+  ?!("WID-001"<-stock.body){failures+=1;p("stock: response missing SKU")}
+
+  missing=dispatch(Request("GET","/api/v1/nope",{},{},""),repo,now,ids)
+  ?missing.status!=404{failures+=1;p(`missing route: expected 404, got {missing.status}`)}
+
+  wrong=dispatch(Request("POST","/api/v1/health",{},{},""),repo,now,ids)
+  ?wrong.status!=405{failures+=1;p(`wrong method: expected 405, got {wrong.status}`)}
+
+  bad=dispatch(Request("POST","/api/v1/products",{},headers,"{"),repo,now,ids)
+  ?bad.status!=400{failures+=1;p(`bad json: expected 400, got {bad.status}`)}
+
+  ?failures==0{
+    p(`{NAME} {VERSION} selftest ok`)
+    ^0
+  }
+  p(`selftest failed: {failures} check(s)`)
+  ^1
+}

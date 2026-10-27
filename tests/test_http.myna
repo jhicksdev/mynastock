@@ -1,0 +1,248 @@
+@target(py)
+<unittest
+<json
+<mynastock.core:{lookup}
+<mynastock.ids:{new_seq_gen}
+<mynastock.http.request:{Request,Response}
+<mynastock.http.router:{Route,match,split_path}
+<mynastock.http.query:{parse_query,split_text}
+<mynastock.http.json:{parse}
+<mynastock.http.presenters:{status_for}
+<mynastock.http.pagination:{sort_rows,page,limit_of}
+<mynastock.http.handlers:{dispatch}
+<mynastock.adapters.memory:{new_memory_repo}
+<mynastock.adapters.sqlite:{SqliteRepo}
+
+$HttpTests<unittest.TestCase{
+  @test_split_path{
+    self.assertEqual(split_path("/api/v1/products"),["api","v1","products"])
+    self.assertEqual(split_path("/api//v1/"),["api","v1"])
+    self.assertEqual(split_path("/"),[])
+    self.assertEqual(split_path(""),[])
+  }
+
+  @test_match{
+    handler=x=>x
+    routes=[Route("GET",["api","v1","products","{id}"],handler)]
+    hit=match("GET","/api/v1/products/42",routes)
+    !?hit.route!==N
+    self.assertEqual(hit.params$id,"42")
+    self.assertEqual(#hit.allowed,0)
+
+    miss=match("POST","/api/v1/products/42",routes)
+    !?miss.route===N
+    self.assertEqual(miss.allowed,["GET"])
+
+    nowhere=match("GET","/api/v1/nope",routes)
+    !?nowhere.route===N
+    self.assertEqual(#nowhere.allowed,0)
+  }
+
+  @test_query{
+    self.assertEqual(parse_query(""),{})
+    self.assertEqual(parse_query("a=1&b=&c=x=y"),{"a":"1","b":"","c":"x=y"})
+    self.assertEqual(parse_query("&a=1&&"),{"a":"1"})
+    self.assertEqual(split_text("a::b",":"),["a","","b"])
+  }
+
+  @test_json{
+    self.assertEqual(parse("{\"a\":1}"),{"a":1})
+    !?parse("{")===N
+    !?parse("")===N
+    !?parse("null")===N
+  }
+
+  @test_status_map{
+    self.assertEqual(status_for("route.not_found"),404)
+    self.assertEqual(status_for("method.not_allowed"),405)
+    self.assertEqual(status_for("version.conflict"),409)
+    self.assertEqual(status_for("stock.insufficient"),409)
+    self.assertEqual(status_for("internal.error"),500)
+    self.assertEqual(status_for("qty.invalid"),400)
+  }
+
+  @test_pagination{
+    rows=[{"cursor":"b","n":2},{"cursor":"a","n":1},{"cursor":"c","n":3}]
+    sorted=sort_rows(rows,"cursor")
+    self.assertEqual(sorted[0]$cursor,"a")
+    self.assertEqual(sorted[2]$cursor,"c")
+    first=page(sorted,"",2)
+    self.assertEqual(#first$items,2)
+    self.assertEqual(first$next_cursor,"b")
+    second=page(sorted,first$next_cursor,2)
+    self.assertEqual(#second$items,1)
+    !?second$next_cursor===N
+
+    descending=sort_rows(rows,"cursor",T)
+    page1=page(descending,"",2,T)
+    self.assertEqual(page1$items[0]$cursor,"c")
+    page2=page(descending,page1$next_cursor,2,T)
+    self.assertEqual(page2$items[0]$cursor,"a")
+  }
+
+  @test_limit{
+    self.assertEqual(limit_of(""),50)
+    self.assertEqual(limit_of("10"),10)
+    self.assertEqual(limit_of("0"),50)
+    self.assertEqual(limit_of("9999"),200)
+    self.assertEqual(limit_of("abc"),50)
+  }
+}
+
+$ApiTests<unittest.TestCase{
+  @make_repo{^new_memory_repo()}
+
+  @setUp{
+    .repo=.make_repo()
+    .ids=new_seq_gen("t")
+    .now="2026-01-01T00:00:00Z"
+  }
+
+  @call(method:s,path:s,body:A=N,headers:{s:s}?=N,query:{s:s}?=N)->Response{
+    h={"content-type":"application/json"}
+    ?headers!==N{
+      %key<-headers{h[key]=headers[key]}
+    }
+    q={}
+    ?query!==N{
+      %key<-query{q[key]=query[key]}
+    }
+    text=""
+    ?body!==N{text=json.dumps(body)}
+    ^dispatch(Request(method,path,q,h,text),.repo,.now,.ids)
+  }
+
+  @payload(response:Response)->A{
+    ^json.loads(response.body)
+  }
+
+  @_setup_stock{
+    self.call("POST","/api/v1/products",{"sku":"WID-001","name":"Widget","unit_cost_cents":250,"reorder_point":5,"reorder_qty":20})
+    self.call("POST","/api/v1/locations",{"code":"WH1","name":"Main","kind":"warehouse"})
+    self.call("POST","/api/v1/locations",{"code":"BIN-A","name":"Bin A"})
+  }
+
+  @test_health{
+    response=self.call("GET","/api/v1/health")
+    self.assertEqual(response.status,200)
+    self.assertEqual(self.payload(response)$status,"ok")
+  }
+
+  @test_create_product_and_duplicate{
+    response=self.call("POST","/api/v1/products",{"sku":"WID-001","name":"Widget","unit_cost_cents":250})
+    self.assertEqual(response.status,201)
+    self.assertEqual(self.payload(response)$sku,"WID-001")
+
+    duplicate=self.call("POST","/api/v1/products",{"sku":"WID-001","name":"Again"})
+    self.assertEqual(duplicate.status,409)
+    self.assertEqual(self.payload(duplicate)$code,"product.duplicate_sku")
+
+    invalid=self.call("POST","/api/v1/products",{"sku":"wid","name":"Lower"})
+    self.assertEqual(invalid.status,400)
+  }
+
+  @test_create_location{
+    response=self.call("POST","/api/v1/locations",{"code":"WH1","name":"Main","kind":"warehouse"})
+    self.assertEqual(response.status,201)
+    bad=self.call("POST","/api/v1/locations",{"code":"WH1","name":"Again"})
+    self.assertEqual(bad.status,409)
+  }
+
+  @test_receive_replay_and_stock{
+    self._setup_stock()
+    body={"type":"receive","sku":"WID-001","location":"WH1","qty":10,"unit_cost_cents":250}
+    headers={"idempotency-key":"k1"}
+    first=self.call("POST","/api/v1/movements",body,headers)
+    self.assertEqual(first.status,201)
+    !?!self.payload(first)$replayed
+
+    replay=self.call("POST","/api/v1/movements",body,headers)
+    self.assertEqual(replay.status,200)
+    self.assertEqual(lookup(replay.headers,"Idempotent-Replay"),"true")
+    !?self.payload(replay)$replayed
+
+    conflict=self.call("POST","/api/v1/movements",{"type":"receive","sku":"WID-001","location":"WH1","qty":11,"unit_cost_cents":250},headers)
+    self.assertEqual(conflict.status,409)
+
+    stock=self.payload(self.call("GET","/api/v1/stock"))
+    self.assertEqual(#stock$items,1)
+    self.assertEqual(stock$items[0]$on_hand,10)
+
+    value=self.payload(self.call("GET","/api/v1/reports/valuation",query={"group_by":"location"}))
+    self.assertEqual(value$total_cents,2500)
+    self.assertEqual(value$items[0]$key,"WH1")
+  }
+
+  @test_transfer_and_low_stock_filter{
+    self._setup_stock()
+    self.call("POST","/api/v1/movements",{"type":"receive","sku":"WID-001","location":"WH1","qty":10,"unit_cost_cents":250},{"idempotency-key":"k1"})
+    transfer=self.call("POST","/api/v1/movements",{"type":"transfer","sku":"WID-001","location":"WH1","to_location":"BIN-A","qty":7},{"idempotency-key":"k2"})
+    self.assertEqual(transfer.status,201)
+
+    low=self.payload(self.call("GET","/api/v1/stock",query={"below_reorder":"true"}))
+    self.assertEqual(#low$items,1)
+    self.assertEqual(low$items[0]$location,"WH1")
+    self.assertEqual(low$items[0]$status,"low")
+
+    reorder=self.payload(self.call("GET","/api/v1/reports/reorder"))
+    self.assertEqual(reorder$items[0]$suggested_qty,17)
+  }
+
+  @test_patch_merges_and_checks_version{
+    created=self.payload(self.call("POST","/api/v1/products",{"sku":"WID-001","name":"Widget","unit_cost_cents":250}))
+    pid=created$id
+
+    patched=self.call("PATCH",`/api/v1/products/{pid}`,{"name":"Widget v2"},{"if-match":"\"1\""})
+    self.assertEqual(patched.status,200)
+    self.assertEqual(self.payload(patched)$name,"Widget v2")
+    self.assertEqual(self.payload(patched)$unit_cost_cents,250)
+    self.assertEqual(self.payload(patched)$version,2)
+
+    stale=self.call("PATCH",`/api/v1/products/{pid}`,{"name":"Stale"},{"if-match":"\"1\""})
+    self.assertEqual(stale.status,409)
+    self.assertEqual(self.payload(stale)$code,"version.conflict")
+
+    missing=self.call("PATCH",`/api/v1/products/{pid}`,{"name":"No header"})
+    self.assertEqual(missing.status,400)
+  }
+
+  @test_pagination_over_movements{
+    self._setup_stock()
+    %i<-.. 3{
+      self.call("POST","/api/v1/movements",{"type":"receive","sku":"WID-001","location":"WH1","qty":1,"unit_cost_cents":100},{"idempotency-key":`k{i}`})
+    }
+    first=self.payload(self.call("GET","/api/v1/movements",query={"limit":"2"}))
+    self.assertEqual(#first$items,2)
+    !?first$next_cursor!==N
+    second=self.payload(self.call("GET","/api/v1/movements",query={"limit":"2","cursor":first$next_cursor}))
+    self.assertEqual(#second$items,1)
+  }
+
+  @test_error_shapes{
+    missing=self.call("GET","/api/v1/nope")
+    self.assertEqual(missing.status,404)
+    self.assertEqual(lookup(missing.headers,"Content-Type"),"application/problem+json; charset=utf-8")
+
+    wrong=self.call("POST","/api/v1/health")
+    self.assertEqual(wrong.status,405)
+    self.assertEqual(lookup(wrong.headers,"Allow"),"GET")
+    self.assertEqual(self.payload(wrong)$code,"method.not_allowed")
+
+    bad=self.call("POST","/api/v1/products",N)
+    self.assertEqual(bad.status,400)
+
+    unknown=self.call("POST","/api/v1/movements",{"type":"receive","sku":"NOPE","location":"WH1","qty":1},{"idempotency-key":"k9"})
+    self.assertEqual(unknown.status,404)
+    self.assertEqual(self.payload(unknown)$code,"product.unknown")
+
+    no_key=self.call("POST","/api/v1/movements",{"type":"receive","sku":"WID-001","location":"WH1","qty":1})
+    self.assertEqual(no_key.status,400)
+    self.assertEqual(self.payload(no_key)$code,"idempotency.required")
+  }
+}
+
+$SqliteApiTests<ApiTests{
+  @make_repo{^SqliteRepo(":memory:")}
+}
+
+@main{unittest.main()}

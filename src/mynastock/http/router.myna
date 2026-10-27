@@ -1,0 +1,48 @@
+@target(py, js)
+
++$$Route(method:s,pattern:[s],handler:A)
++$$Match(route:Route?,params:{s:s},allowed:[s])
+
++@split_path(path:s)->[s]{
+  segments=[]
+  current=""
+  %i<-.. #path{
+    c=path[i]
+    ?c=="/"{
+      ?#current>0{segments.append(current)}
+      current=""
+    }:{
+      current+=c
+    }
+  }
+  ?#current>0{segments.append(current)}
+  ^segments
+}
+
++@match_segments(pattern:[s],segments:[s])->{s:A}?{
+  ?#pattern!=#segments{^N}
+  params={}
+  %i<-.. #pattern{
+    part=pattern[i]
+    ?#part>0&&part[0]=="{"{
+      name=part[1:#part-1]
+      params[name]=segments[i]
+    }:?part!=segments[i]{
+      ^N
+    }
+  }
+  ^params
+}
+
++@match(method:s,path:s,routes:[Route])->Match{
+  segments=split_path(path)
+  allowed=[]
+  %route<-routes{
+    params=match_segments(route.pattern,segments)
+    ?params!==N{
+      ?route.method==method{^Match(route,params,[])}
+      allowed.append(route.method)
+    }
+  }
+  ^Match(N,{},allowed)
+}

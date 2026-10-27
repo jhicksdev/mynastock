@@ -1,0 +1,80 @@
+@target(py)
+<unittest
+<json,threading
+<http.server:{ThreadingHTTPServer}
+<urllib.request:{urlopen,Request}
+<urllib.error:HTTPError
+<mynastock.adapters.memory:{new_memory_repo}
+<mynastock.adapters.stdlib_server:{STATE,ApiHandler}
+
+$ServerTests<unittest.TestCase{
+  @setUp{
+    STATE["repo"]=new_memory_repo()
+    .server=ThreadingHTTPServer(("127.0.0.1",0),ApiHandler)
+    .thread=threading.Thread(target=.server.serve_forever,daemon=T)
+    .thread.start()
+    .base=`http://127.0.0.1:{.server.server_port}`
+  }
+
+  @tearDown{
+    .server.shutdown()
+    .server.server_close()
+    .thread.join(timeout=2.0)
+  }
+
+  @_get(path:s)->(i,s){
+    !{
+      !&response=urlopen(`{.base}{path}`){
+        ^response.status,response.read().decode("utf-8")
+      }
+    }!!e:HTTPError{
+      ^e.code,e.read().decode("utf-8")
+    }
+  }
+
+  @_post(path:s,body:A,headers:{s:s}?=N)->(i,s){
+    encoded=@u8(@J(body))
+    request_headers={"Content-Type":"application/json"}
+    ?headers!==N{
+      %key<-headers{request_headers[key]=headers[key]}
+    }
+    !{
+      !&response=urlopen(Request(`{.base}{path}`,data=encoded,headers=request_headers,method="POST")){
+        ^response.status,response.read().decode("utf-8")
+      }
+    }!!e:HTTPError{
+      ^e.code,e.read().decode("utf-8")
+    }
+  }
+
+  @test_health_over_socket{
+    status,body=._get("/api/v1/health")
+    self.assertEqual(status,200)
+    self.assertEqual(json.loads(body)$status,"ok")
+  }
+
+  @test_product_and_movement_over_socket{
+    status,_=._post("/api/v1/products",{"sku":"WID-001","name":"Widget","unit_cost_cents":250,"reorder_point":5,"reorder_qty":20})
+    self.assertEqual(status,201)
+    status,_=._post("/api/v1/locations",{"code":"WH1","name":"Main","kind":"warehouse"})
+    self.assertEqual(status,201)
+
+    movement={"type":"receive","sku":"WID-001","location":"WH1","qty":10,"unit_cost_cents":250}
+    status,_=._post("/api/v1/movements",movement,{"Idempotency-Key":"socket-1"})
+    self.assertEqual(status,201)
+    status,_=._post("/api/v1/movements",movement,{"Idempotency-Key":"socket-1"})
+    self.assertEqual(status,200)
+
+    status,body=._get("/api/v1/stock")
+    self.assertEqual(status,200)
+    self.assertEqual(json.loads(body)$items[0]$on_hand,10)
+  }
+
+  @test_problem_response_over_socket{
+    status,body=._get("/api/v1/nope")
+    self.assertEqual(status,404)
+    self.assertEqual(json.loads(body)$code,"route.not_found")
+  }
+}
+
+@main{unittest.main()}

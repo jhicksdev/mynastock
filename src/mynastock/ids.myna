@@ -1,0 +1,22 @@
+@target(py, js)
+
+# Identity generation is injected so the kernel stays deterministic and host-free.
+$IdGen{
+  @next->s{^""}
+}
+
+$SeqGen<IdGen{
+  @init(prefix:s="id"){
+    ..init()
+    .prefix=prefix
+    .n=0
+  }
+  @next->s{
+    .n+=1
+    ^`{.prefix}-{.n}`
+  }
+}
+
++@new_seq_gen(prefix:s="id")->SeqGen{
+  ^SeqGen(prefix)
+}

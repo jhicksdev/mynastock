@@ -1,0 +1,3 @@
+# Portable modules permitted to use a bare try/catch. Every entry needs a parity
+# test; the exception must be a host boundary, not domain control flow.
+src/mynastock/http/json.myna
