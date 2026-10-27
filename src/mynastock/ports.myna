@@ -9,8 +9,8 @@ $Repo{
   @location_by_code(code:s)->Location?{^N}
   @level(pid:s,lid:s)->StockLevel?{^N}
   @find_operation(key:s)->Operation?{^N}
-  @insert_product(p:Product)->Result{^fail("repo.not_implemented","insert_product is not implemented")}
-  @update_product(p:Product,expected_version:i)->Result{^fail("repo.not_implemented","update_product is not implemented")}
+  @insert_product(product:Product)->Result{^fail("repo.not_implemented","insert_product is not implemented")}
+  @update_product(product:Product,expected_version:i)->Result{^fail("repo.not_implemented","update_product is not implemented")}
   @insert_location(l:Location)->Result{^fail("repo.not_implemented","insert_location is not implemented")}
   @apply(op:Operation,ms:[Movement],levels:[StockLevel])->Result{^fail("repo.not_implemented","apply is not implemented")}
   @list_products->[Product]{^[]}

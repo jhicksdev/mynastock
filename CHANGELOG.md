@@ -28,3 +28,12 @@ All notable changes to this project are documented here. The format follows
   conservation.
 - `tools/assemble.py`: single-file JS assembly plus a service-level Node parity scenario.
 - ADR-0002 (ledger and costing) and ADR-0003 (JS assembly).
+
+### Fixed
+
+- Verified the build against the pinned `myna-lang==0.4.1` (the previous local toolchain
+  was 0.4.0): renamed `p` parameters that 0.4.1 rewrites to the print alias in JS, and
+  moved the JS target gate to the assembled artifact because 0.4.1 rejects per-file
+  relative imports.
+- `make test-js` now passes explicit test files; Node 22 does not accept a directory for
+  `--test`.

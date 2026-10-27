@@ -41,7 +41,7 @@ js-portable:
 	@$(NODE) --check $(BUILD)/js/portable.mjs
 
 test-js: js-portable
-	@$(NODE) --test tests/js
+	@$(NODE) --test tests/js/*.test.mjs
 
 run:
 	@$(MYNA) run src/mynastock/main.myna

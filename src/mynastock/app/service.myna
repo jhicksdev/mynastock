@@ -136,7 +136,7 @@
   products=repo.list_products()
   levels=repo.list_levels()
   locations=repo.list_locations()
-  by_product={p.id: p | p <- products}
+  by_product={prod.id: prod | prod <- products}
   by_location={l.id: l | l <- locations}
   rows=[]
   %level<-levels{
@@ -155,7 +155,7 @@
   products=repo.list_products()
   levels=repo.list_levels()
   locations=repo.list_locations()
-  by_product={p.id: p | p <- products}
+  by_product={prod.id: prod | prod <- products}
   by_location={l.id: l | l <- locations}
   rows=[]
   %level<-levels{

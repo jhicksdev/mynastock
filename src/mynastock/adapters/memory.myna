@@ -44,24 +44,24 @@ $MemoryRepo<Repo{
     ^lookup(.operations,key)
   }
 
-  @insert_product(p:Product)->Result{
-    pid=p.id
-    sku=p.sku
+  @insert_product(product:Product)->Result{
+    pid=product.id
+    sku=product.sku
     ?lookup(.products,pid)!==N{^fail("product.duplicate_id",`Product id {pid} already exists`,"id")}
     ?lookup(.skus,sku)!==N{^fail("product.duplicate_sku",`SKU {sku} already exists`,"sku")}
-    .products[p.id]=p
-    .skus[p.sku]=p.id
-    .product_ids.append(p.id)
-    ^ok(p.id)
+    .products[product.id]=product
+    .skus[product.sku]=product.id
+    .product_ids.append(product.id)
+    ^ok(product.id)
   }
 
-  @update_product(p:Product,expected_version:i)->Result{
-    pid=p.id
+  @update_product(product:Product,expected_version:i)->Result{
+    pid=product.id
     current=lookup(.products,pid)
     ?current===N{^fail("product.unknown",`No product with id {pid}`,"id")}
     ?current.version!=expected_version{^fail("version.conflict","The product was modified by someone else","version")}
-    .products[p.id]=p
-    ^ok(p.id)
+    .products[product.id]=product
+    ^ok(product.id)
   }
 
   @insert_location(l:Location)->Result{

@@ -42,6 +42,8 @@ PYTHONPATH=build/py python3 build/py/tests/test_money.py
 Three pitfalls that cost real debugging time, now covered by tests:
 
 - `d$?k` uses the **literal** key `"k"`. Dynamic keys go through `lookup(d, k)`.
+- Never name a variable or parameter `p`: myna 0.4.1 rewrites it to the print alias in
+  JS (`__myna_print`) while Python keeps the local binding.
 - A subclass `@init` must call `..init()` before touching `self`; the JS target needs
   `super()` first.
 - Myna does not check call arity. Extra positional arguments are silently ignored, so a

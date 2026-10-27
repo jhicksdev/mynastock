@@ -1,4 +1,4 @@
-# ADR-0001: A single import-free portable kernel
+# ADR-0001: A single portable kernel
 
 **Status:** Accepted
 **Date:** 2026-10-27
@@ -11,19 +11,19 @@ The project needs one domain implementation that runs on a Python server *and* i
 browser demo; reimplementing the ledger in JavaScript would guarantee drift.
 
 Before choosing a boundary, the JavaScript target was probed directly on myna 0.4.1.
-The failures are not theoretical:
+That release fixed several 0.4.0 problems: it defines JS exception classes, emits
+`instanceof` checks for typed handlers, iterates strings in comprehensions, and rejects
+relative imports instead of emitting broken specifiers. The constraints that remain, and
+that the kernel is designed around, are:
 
-- `$E<Exception` emits `class E extends Exception`, and JS has no `Exception` binding.
-- `!^ValueError("x")` emits `throw ValueError('x')`, also undefined.
-- `!!e:ValueError` compiles to a bare `catch (e)` with no type check, so a typed handler
-  swallows every error.
-- `[c | c <- s]` emits `s.filter(...)`; strings have no `.filter`.
-- `?? v { 0 => "none" }` (expression arm) silently returns `None` in both targets; only
-  block arms with an explicit return work.
+- `?? v { 0 => "none" }` (expression arm) silently evaluates to `None`; only block arms
+  with an explicit return work.
 - `@int("4x")` raises in Python and returns `NaN` in JS.
 - `new Date()` is not supported by the grammar.
-- Relative imports compile to extensionless specifiers (`./core`) and cannot be bundled
-  for JS, so the browser artifact must be a single file.
+- A parameter or variable named `p` is rewritten to the print alias in JS
+  (`__myna_print`), while Python keeps the local binding.
+- Relative imports are rejected for the JS target, so a multi-file portable program must
+  be assembled into one file before compilation.
 
 ## Decision
 
@@ -35,21 +35,29 @@ The laws:
 1. Shared modules may import only other modules on the portable allowlist, and only
    relatively. Absolute imports are rejected.
 2. No exception syntax (`!{`, `!!`, `!^`, `!&`, `!?`) in shared modules. Failures are
-   values: `$$Err(code, message, field, meta)` and `$$Result(ok, value, error)`.
+   values: `$$Err(code, message, field, meta)` and `$$Result(ok, value, error)`. 0.4.1
+   can emulate exceptions, but relying on that shim would tie domain flow to a class
+   hierarchy the JS backend only approximates; explicit results are identical on both
+   hosts and free of transport concerns.
 3. No host libraries (no `datetime`, `json`, `sqlite3`, `abc`, `uuid`). Builtins `@J`,
    `@j`, `@int`, `@str` are allowed; time, IDs, and storage are injected.
 4. Money is integer cents; quantities are whole units. Values stay under `2^53`.
 5. Parse, don't coerce: validate with `is_digits` before `@int`.
-6. No comprehensions over strings; iterate with `% i <- ..#s` and index.
+6. Scan strings with indexed loops (`% i <- ..#s`) so behaviour does not depend on
+   iteration emulation.
 7. `??` arms are blocks with explicit `^` returns.
 8. Single inheritance only; no class or method decorators.
 9. Public functions use `+@`, which yields `__all__` in Python and `export` in JS.
 10. No `new`, no string `join`/`replace` (their semantics differ across targets).
+11. Never use a builtin shorthand alias as an identifier. In 0.4.1 a parameter
+    named `p` compiles to `__myna_print` in JS (the print alias wins over the local
+    binding), while Python emits `p` correctly.
 
 Enforcement:
 
 - `tools/portable.txt` is the allowlist of shared modules, in dependency order.
-- `tools/check_targets.sh` requires `@target(py, js)` and a successful JS generation.
+- `tools/check_targets.sh` requires `@target(py, js)` on every module and validates the
+  assembled artifact, because per-file JS compilation rejects relative imports.
 - `tools/check_portable.sh` rejects exception syntax and `new`.
 - `tools/check_imports.py` rejects absolute imports and imports of non-portable modules.
 - `tools/assemble.py` produces the single JS compilable file, refusing duplicate
@@ -69,6 +77,11 @@ Pitfalls discovered while building M1 (all verified, all now covered by tests):
   tests are the only reliable guard against a shifted argument list.
 - `@srt(key=...)` is not documented as portable, so report ordering is left to the
   presenters and the UI.
+- In 0.4.1 the JS target rejects relative imports at compile time (0.4.0 emitted broken
+  extensionless specifiers instead). The target gate therefore validates the assembled
+  artifact, not each source module.
+- The local toolchain matters: myna 0.4.0 and 0.4.1 differ in JS code generation. Always
+  verify against the pinned version, which is what CI installs.
 
 ## Consequences
 
