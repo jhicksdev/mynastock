@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Portable modules must declare both targets. Since myna 0.4.1 rejects relative
+# Portable modules must declare both targets. Since myna 0.4.1 and later rejects relative
 # imports per file for the JS target, the executable check runs on the assembled
 # single-file artifact (the thing that actually ships to the browser).
 set -euo pipefail

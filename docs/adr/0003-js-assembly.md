@@ -6,8 +6,8 @@
 
 ## Context
 
-Myna 0.4.1 compiles relative imports for the JavaScript target into extensionless
-specifiers:
+Before 0.4.1, Myna compiled relative imports for the JavaScript target into
+extensionless specifiers:
 
 ```js
 import { add } from "./core";   // no .js

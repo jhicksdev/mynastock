@@ -14,7 +14,7 @@ All notable changes to this project are documented here. The format follows
 - Portability gates: target declaration, forbidden-construct scan, and a portable-import
   checker.
 - `myna run` entry points (`main.myna`, `cli.myna`) and version metadata.
-- ADR-0001 documenting the portable-zone rules and the myna 0.4.1 evidence behind them.
+- ADR-0001 documenting the portable-zone rules and the myna 0.4.x evidence behind them.
 
 - M1 ledger: append-only `receive`, `issue`, `adjust`, and two-leg `transfer` movements.
 - Per-location moving weighted average costing with integer cents and validated bounds.
@@ -28,6 +28,11 @@ All notable changes to this project are documented here. The format follows
   conservation.
 - `tools/assemble.py`: single-file JS assembly plus a service-level Node parity scenario.
 - ADR-0002 (ledger and costing) and ADR-0003 (JS assembly).
+
+### Changed
+
+- Pinned `myna-lang==0.4.2`. Generated Python and JavaScript are byte-identical to the
+  0.4.1 output for this codebase; the release only changes decompiler diagnostics.
 
 ### Fixed
 

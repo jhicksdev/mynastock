@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Concatenate the portable modules into one file the JS target can compile.
 
-myna 0.4.1 emits extensionless relative specifiers for `-t js`, so a multi-file
-portable program cannot be loaded as ES modules. This tool is the temporary bridge:
+myna 0.4.x rejects relative imports for `-t js` and cannot bundle them, so a
+multi-file portable program cannot be compiled as-is. This tool is the temporary bridge:
 it strips module headers and relative imports, preserves source order, and refuses
 duplicate top-level names. Delete it when upstream JS bundling lands (Myna D-002).
 """

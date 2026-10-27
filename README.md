@@ -4,7 +4,7 @@
 
 [![CI](https://github.com/jhicksdev/mynastock/actions/workflows/ci.yml/badge.svg)](https://github.com/jhicksdev/mynastock/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-yellow.svg)](LICENSE)
-[![Myna](https://img.shields.io/badge/myna--lang-0.4.1-informational)](https://pypi.org/project/myna-lang/)
+[![Myna](https://img.shields.io/badge/myna--lang-0.4.2-informational)](https://pypi.org/project/myna-lang/)
 
 MynaStock is an inventory management system written in [Myna](https://github.com/jhicksdev/myna), an ultra-dense language that transpiles 1:1 to Python 3.12 and to a portable subset of JavaScript. One import-free kernel is intended to power a zero-dependency HTTP server, an ASGI deployment, and a static browser demo compiled from the same source.
 
@@ -14,7 +14,7 @@ MynaStock is an inventory management system written in [Myna](https://github.com
 
 ## Quickstart
 
-Requirements: `myna-lang==0.4.1`, Python 3.12+, Node 22+, and `uv` (only for the default `uvx ruff` runner; `RUFF=ruff` works too).
+Requirements: `myna-lang==0.4.2`, Python 3.12+, Node 22+, and `uv` (only for the default `uvx ruff` runner; `RUFF=ruff` works too).
 
 ```bash
 git clone https://github.com/jhicksdev/mynastock.git
