@@ -1,0 +1,200 @@
+@target(py, js)
+<..core:{MAX_QTY,Product,Location,StockLevel,Movement,Operation,Result,Valuation,ok,fail,lookup,is_code,is_text,is_blank,check_cost,plan_receive,plan_issue,plan_adjust,plan_transfer,fingerprint,stock_status,suggested_qty}
+<..ports:{Repo}
+
+# Commands are exported (+$$) so the JavaScript parity suite can construct them.
++$$NewProduct(sku:s,name:s,unit_cost_cents:i,reorder_point:i=0,reorder_qty:i=0,uom:s="ea")
++$$NewLocation(code:s,name:s,kind:s="bin")
++$$UpdateProduct(id:s,sku:s,name:s,unit_cost_cents:i,reorder_point:i=0,reorder_qty:i=0,uom:s="ea",active:b=T,expected_version:i=1)
++$$MoveCmd(type:s,sku:s,location:s="",to_location:s="",qty:i=0,unit_cost_cents:i?=N,reason:s?=N,reference:s?=N,actor:s="system",idempotency_key:s="")
+
+# ---------------------------------------------------------------------------
+# Catalogue
+# ---------------------------------------------------------------------------
+
++@create_product(cmd:NewProduct,repo:Repo,now:s,id:s)->Result{
+  ?!is_code(cmd.sku){^fail("sku.invalid","SKU must be 1-40 characters of A-Z, 0-9, - or _","sku")}
+  ?!is_text(cmd.name){^fail("name.invalid","Name is required (max 200 characters)","name")}
+  ?!is_text(cmd.uom,10){^fail("uom.invalid","Unit of measure is required (max 10 characters)","uom")}
+  e=check_cost(cmd.unit_cost_cents)
+  ?e!==N{^Result(F,N,e)}
+  ?cmd.reorder_point<0||cmd.reorder_point>MAX_QTY{^fail("reorder.invalid","Reorder point is out of range","reorder_point")}
+  ?cmd.reorder_qty<0||cmd.reorder_qty>MAX_QTY{^fail("reorder.invalid","Reorder quantity is out of range","reorder_qty")}
+  ?repo.product_by_sku(cmd.sku)!==N{^fail("product.duplicate_sku",`SKU {cmd.sku} already exists`,"sku")}
+  product=Product(id,cmd.sku,cmd.name,cmd.uom,cmd.unit_cost_cents,cmd.reorder_point,cmd.reorder_qty,T,1,now,now)
+  inserted=repo.insert_product(product)
+  ?!inserted.ok{^inserted}
+  ^ok(product.to_dict())
+}
+
++@create_location(cmd:NewLocation,repo:Repo,id:s)->Result{
+  ?!is_code(cmd.code){^fail("code.invalid","Location code must be 1-40 characters of A-Z, 0-9, - or _","code")}
+  ?!is_text(cmd.name){^fail("name.invalid","Name is required (max 200 characters)","name")}
+  ?cmd.kind!<-("warehouse","bin","transit"){^fail("kind.invalid","Location kind must be warehouse, bin or transit","kind")}
+  ?repo.location_by_code(cmd.code)!==N{^fail("location.duplicate_code",`Location code {cmd.code} already exists`,"code")}
+  location=Location(id,cmd.code,cmd.name,cmd.kind,T)
+  inserted=repo.insert_location(location)
+  ?!inserted.ok{^inserted}
+  ^ok(location.to_dict())
+}
+
++@update_product(cmd:UpdateProduct,repo:Repo,now:s)->Result{
+  current=repo.product_by_id(cmd.id)
+  ?current===N{^fail("product.unknown",`No product with id {cmd.id}`,"id")}
+  ?current.version!=cmd.expected_version{^fail("version.conflict","The product was modified by someone else","version")}
+  ?!is_code(cmd.sku){^fail("sku.invalid","SKU must be 1-40 characters of A-Z, 0-9, - or _","sku")}
+  ?!is_text(cmd.name){^fail("name.invalid","Name is required (max 200 characters)","name")}
+  ?!is_text(cmd.uom,10){^fail("uom.invalid","Unit of measure is required (max 10 characters)","uom")}
+  e=check_cost(cmd.unit_cost_cents)
+  ?e!==N{^Result(F,N,e)}
+  ?cmd.reorder_point<0||cmd.reorder_point>MAX_QTY{^fail("reorder.invalid","Reorder point is out of range","reorder_point")}
+  ?cmd.reorder_qty<0||cmd.reorder_qty>MAX_QTY{^fail("reorder.invalid","Reorder quantity is out of range","reorder_qty")}
+  other=repo.product_by_sku(cmd.sku)
+  ?other!==N&&other.id!=cmd.id{^fail("product.duplicate_sku",`SKU {cmd.sku} already exists`,"sku")}
+  updated=Product(current.id,cmd.sku,cmd.name,cmd.uom,cmd.unit_cost_cents,cmd.reorder_point,cmd.reorder_qty,cmd.active,current.version+1,current.created_at,now)
+  saved=repo.update_product(updated,cmd.expected_version)
+  ?!saved.ok{^saved}
+  ^ok(updated.to_dict())
+}
+
+# ---------------------------------------------------------------------------
+# Movements
+# ---------------------------------------------------------------------------
+
++@post_movement(cmd:MoveCmd,repo:Repo,now:s,ids:[s])->Result{
+  ?is_blank(cmd.idempotency_key){^fail("idempotency.required","An Idempotency-Key is required")}
+  ?#ids<3{^fail("internal.error","The service needs at least three generated ids")}
+  cost_text=""
+  ?cmd.unit_cost_cents!==N{cost_text=@str(cmd.unit_cost_cents)}
+  fp=fingerprint([cmd.type,cmd.sku,cmd.location,cmd.to_location,@str(cmd.qty),cost_text,cmd.reason??"",cmd.reference??""])
+  previous=repo.find_operation(cmd.idempotency_key)
+  ?previous!==N{
+    ?previous.request_fingerprint==fp{^ok(@j(previous.response_json))}
+    ^fail("movement.idempotency_conflict","This Idempotency-Key was used with a different request")
+  }
+  product=repo.product_by_sku(cmd.sku)
+  ?product===N{^fail("product.unknown",`No product with SKU {cmd.sku}`,"sku")}
+  ?!product.active{^fail("product.inactive",`Product {cmd.sku} is not active`,"sku")}
+  planned=_plan(cmd,product,repo,now)
+  ?!planned.ok{^planned}
+  plan=planned.value
+  transfer_id=N
+  ?cmd.type=="transfer"{transfer_id=ids[0]}
+  movements=[]
+  %i<-.. #plan.legs{
+    leg=plan.legs[i]
+    movements.append(Movement(ids[i+1],ids[0],_movement_type(cmd.type,i),product.id,leg.location_id,leg.qty_delta,leg.unit_cost_cents,transfer_id,cmd.reason,cmd.actor,now))
+  }
+  response={operation_id:ids[0],type:cmd.type,sku:product.sku,movements:[m.to_dict()|m<-movements],levels:[l.to_dict()|l<-plan.levels]}
+  operation=Operation(ids[0],cmd.idempotency_key,fp,@J(response),now)
+  applied=repo.apply(operation,movements,plan.levels)
+  ?!applied.ok{^applied}
+  ^ok(response)
+}
+
++@_movement_type(kind:s,index:i)->s{
+  ?kind!="transfer"{^kind}
+  ?index==0{^"transfer_out"}
+  ^"transfer_in"
+}
+
++@_plan(cmd:MoveCmd,product:Product,repo:Repo,now:s)->Result{
+  ??cmd.type{
+    "receive"=>{
+      location=repo.location_by_code(cmd.location)
+      ?location===N{^fail("location.unknown",`No location with code {cmd.location}`,"location")}
+      cost=product.unit_cost_cents
+      ?cmd.unit_cost_cents!==N{cost=cmd.unit_cost_cents}
+      ^plan_receive(repo.level(product.id,location.id),product.id,location.id,cmd.qty,cost,now)
+    }
+    "issue"=>{
+      location=repo.location_by_code(cmd.location)
+      ?location===N{^fail("location.unknown",`No location with code {cmd.location}`,"location")}
+      ^plan_issue(repo.level(product.id,location.id),product.id,location.id,cmd.qty,now)
+    }
+    "adjust"=>{
+      location=repo.location_by_code(cmd.location)
+      ?location===N{^fail("location.unknown",`No location with code {cmd.location}`,"location")}
+      ^plan_adjust(repo.level(product.id,location.id),product.id,location.id,cmd.qty,cmd.unit_cost_cents,cmd.reason,now)
+    }
+    "transfer"=>{
+      source=repo.location_by_code(cmd.location)
+      ?source===N{^fail("location.unknown",`No source location with code {cmd.location}`,"location")}
+      destination=repo.location_by_code(cmd.to_location)
+      ?destination===N{^fail("location.unknown",`No destination location with code {cmd.to_location}`,"to_location")}
+      ^plan_transfer(repo.level(product.id,source.id),repo.level(product.id,destination.id),product.id,source.id,destination.id,cmd.qty,now)
+    }
+    _=>{^fail("movement.invalid_type",`Unknown movement type: {cmd.type}`,"type")}
+  }
+}
+
+# ---------------------------------------------------------------------------
+# Reports
+# ---------------------------------------------------------------------------
+
++@stock_rows(repo:Repo)->Result{
+  products=repo.list_products()
+  levels=repo.list_levels()
+  locations=repo.list_locations()
+  by_product={p.id: p | p <- products}
+  by_location={l.id: l | l <- locations}
+  rows=[]
+  %level<-levels{
+    pid=level.product_id
+    lid=level.location_id
+    product=lookup(by_product,pid)
+    location=lookup(by_location,lid)
+    ?product!==N&&location!==N{
+      rows.append({sku:product.sku,product:product.name,location:location.code,on_hand:level.on_hand,avg_cost_cents:level.avg_cost_cents,value_cents:level.on_hand*level.avg_cost_cents,reorder_point:product.reorder_point,status:stock_status(level.on_hand,product.reorder_point)})
+    }
+  }
+  ^ok(rows)
+}
+
++@reorder_rows(repo:Repo)->Result{
+  products=repo.list_products()
+  levels=repo.list_levels()
+  locations=repo.list_locations()
+  by_product={p.id: p | p <- products}
+  by_location={l.id: l | l <- locations}
+  rows=[]
+  %level<-levels{
+    pid=level.product_id
+    product=lookup(by_product,pid)
+    ?product!==N&&product.active{
+      ?level.on_hand<=product.reorder_point{
+        lid=level.location_id
+        location=lookup(by_location,lid)
+        code=""
+        ?location!==N{code=location.code}
+        rows.append({sku:product.sku,product:product.name,location:code,on_hand:level.on_hand,reorder_point:product.reorder_point,suggested_qty:suggested_qty(level.on_hand,product.reorder_point,product.reorder_qty)})
+      }
+    }
+  }
+  ^ok(rows)
+}
+
++@valuation(repo:Repo,group_by:s)->Result{
+  ?group_by!="product"&&group_by!="location"{^fail("group.invalid","group_by must be 'product' or 'location'","group_by")}
+  levels=repo.list_levels()
+  items=[]
+  total=0
+  %level<-levels{
+    key=level.product_id
+    ?group_by=="location"{key=level.location_id}
+    value=level.on_hand*level.avg_cost_cents
+    total+=value
+    index=-1
+    %i<-.. #items{
+      ?items[i].key==key{index=i}
+    }
+    ?index<0{items.append(Valuation(key,level.on_hand,value))}
+    :{
+      entry=items[index]
+      entry.qty+=level.on_hand
+      entry.value_cents+=value
+      items[index]=entry
+    }
+  }
+  ^ok({group_by:group_by,total_cents:total,items:[v.to_dict()|v<-items]})
+}

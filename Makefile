@@ -11,6 +11,7 @@ check: lint test-py lint-py test-js
 lint:
 	@bash tools/check_targets.sh
 	@bash tools/check_portable.sh
+	@python3 tools/check_imports.py
 
 build-py:
 	@rm -rf $(BUILD)/py
@@ -35,8 +36,9 @@ lint-py: build-py
 
 js-portable:
 	@mkdir -p $(BUILD)/js
-	@$(MYNA) compile -t js src/mynastock/core.myna -o $(BUILD)/js/core.mjs
-	@$(NODE) --check $(BUILD)/js/core.mjs
+	@python3 tools/assemble.py $(BUILD)/js/portable.myna
+	@$(MYNA) compile -t js $(BUILD)/js/portable.myna -o $(BUILD)/js/portable.mjs
+	@$(NODE) --check $(BUILD)/js/portable.mjs
 
 test-js: js-portable
 	@$(NODE) --test tests/js

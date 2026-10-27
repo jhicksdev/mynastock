@@ -1,0 +1,171 @@
+@target(py)
+<unittest
+<mynastock.core:{MAX_QTY,MAX_COST_CENTS,Err,Result,StockLevel,plan_receive,plan_issue,plan_adjust,plan_transfer,check_qty,check_cost,blend,fingerprint,lookup,is_code,is_text,stock_status,suggested_qty}
+
+$LedgerTests<unittest.TestCase{
+  @test_receive_new_level{
+    r=plan_receive(N,"p1","l1",10,250,"t1")
+    !?r.ok
+    level=r.value.levels[0]
+    self.assertEqual(level.on_hand,10)
+    self.assertEqual(level.avg_cost_cents,250)
+    self.assertEqual(level.version,1)
+    self.assertEqual(r.value.legs[0].qty_delta,10)
+    self.assertEqual(r.value.legs[0].unit_cost_cents,250)
+  }
+
+  @test_receive_blends_average{
+    level=StockLevel("p1","l1",10,250,1,"t0")
+    r=plan_receive(level,"p1","l1",5,350,"t1")
+    !?r.ok
+    self.assertEqual(r.value.levels[0].on_hand,15)
+    self.assertEqual(r.value.levels[0].avg_cost_cents,283)
+    self.assertEqual(r.value.levels[0].version,2)
+  }
+
+  @test_receive_rejects_bad_input{
+    r=plan_receive(N,"p1","l1",0,250,"t1")
+    !?!r.ok
+    self.assertEqual(r.error.code,"qty.invalid")
+
+    r=plan_receive(N,"p1","l1",MAX_QTY+1,250,"t1")
+    !?!r.ok
+    self.assertEqual(r.error.code,"qty.too_large")
+
+    r=plan_receive(N,"p1","l1",1,-1,"t1")
+    !?!r.ok
+    self.assertEqual(r.error.code,"cost.invalid")
+
+    r=plan_receive(N,"p1","l1",MAX_QTY,250,"t1")
+    !?r.ok
+
+    r=plan_receive(r.value.levels[0],"p1","l1",1,250,"t2")
+    !?!r.ok
+    self.assertEqual(r.error.code,"stock.too_large")
+  }
+
+  @test_issue_keeps_average{
+    level=StockLevel("p1","l1",10,250,1,"t0")
+    r=plan_issue(level,"p1","l1",4,"t1")
+    !?r.ok
+    self.assertEqual(r.value.levels[0].on_hand,6)
+    self.assertEqual(r.value.levels[0].avg_cost_cents,250)
+    self.assertEqual(r.value.legs[0].qty_delta,-4)
+    self.assertEqual(r.value.legs[0].unit_cost_cents,250)
+  }
+
+  @test_issue_rejects_insufficient{
+    level=StockLevel("p1","l1",3,250,1,"t0")
+    r=plan_issue(level,"p1","l1",4,"t1")
+    !?!r.ok
+    self.assertEqual(r.error.code,"stock.insufficient")
+    self.assertEqual(r.error.meta$available,3)
+
+    r=plan_issue(N,"p1","l1",1,"t1")
+    !?!r.ok
+    self.assertEqual(r.error.code,"stock.insufficient")
+  }
+
+  @test_adjust_requires_reason{
+    level=StockLevel("p1","l1",10,250,1,"t0")
+    r=plan_adjust(level,"p1","l1",5,300,N,"t1")
+    !?!r.ok
+    self.assertEqual(r.error.code,"adjust.reason_required")
+
+    r=plan_adjust(level,"p1","l1",5,300,"   ","t1")
+    !?!r.ok
+    self.assertEqual(r.error.code,"adjust.reason_required")
+  }
+
+  @test_adjust_negative_and_positive{
+    level=StockLevel("p1","l1",10,250,1,"t0")
+    r=plan_adjust(level,"p1","l1",-3,N,"damage","t1")
+    !?r.ok
+    self.assertEqual(r.value.levels[0].on_hand,7)
+    self.assertEqual(r.value.levels[0].avg_cost_cents,250)
+    self.assertEqual(r.value.legs[0].qty_delta,-3)
+
+    r=plan_adjust(level,"p1","l1",5,310,"found","t1")
+    !?r.ok
+    self.assertEqual(r.value.levels[0].on_hand,15)
+    self.assertEqual(r.value.levels[0].avg_cost_cents,270)
+    self.assertEqual(r.value.legs[0].qty_delta,5)
+  }
+
+  @test_adjust_bounds{
+    r=plan_adjust(N,"p1","l1",0,N,"why","t1")
+    !?!r.ok
+    self.assertEqual(r.error.code,"qty.invalid")
+
+    r=plan_adjust(N,"p1","l1",MAX_QTY+1,N,"why","t1")
+    !?!r.ok
+    self.assertEqual(r.error.code,"qty.too_large")
+
+    r=plan_adjust(N,"p1","l1",-1,N,"why","t1")
+    !?!r.ok
+    self.assertEqual(r.error.code,"stock.insufficient")
+  }
+
+  @test_transfer_conserves_and_blends{
+    src=StockLevel("p1","l1",10,250,1,"t0")
+    dst=StockLevel("p1","l2",4,300,1,"t0")
+    r=plan_transfer(src,dst,"p1","l1","l2",5,"t1")
+    !?r.ok
+    self.assertEqual(r.value.legs[0].qty_delta,-5)
+    self.assertEqual(r.value.legs[1].qty_delta,5)
+    self.assertEqual(r.value.legs[0].qty_delta+r.value.legs[1].qty_delta,0)
+    self.assertEqual(r.value.levels[0].on_hand,5)
+    self.assertEqual(r.value.levels[1].on_hand,9)
+    self.assertEqual(r.value.levels[1].avg_cost_cents,272)
+  }
+
+  @test_transfer_rejects{
+    src=StockLevel("p1","l1",10,250,1,"t0")
+    r=plan_transfer(src,N,"p1","l1","l1",5,"t1")
+    !?!r.ok
+    self.assertEqual(r.error.code,"transfer.same_location")
+
+    r=plan_transfer(src,N,"p1","l1","l2",11,"t1")
+    !?!r.ok
+    self.assertEqual(r.error.code,"stock.insufficient")
+
+    r=plan_transfer(N,N,"p1","l1","l2",1,"t1")
+    !?!r.ok
+    self.assertEqual(r.error.code,"stock.insufficient")
+  }
+
+  @test_fingerprint_is_unambiguous{
+    a=fingerprint(["receive","A|B","1",""])
+    b=fingerprint(["receive","A","B|1",""])
+    !?a!=b
+    self.assertEqual(fingerprint(["x","y"]),fingerprint(["x","y"]))
+  }
+
+  @test_lookup_is_dynamic{
+    d={"a":1,"b":2}
+    self.assertEqual(lookup(d,"a"),1)
+    !?lookup(d,"missing")===N
+  }
+
+  @test_codes_and_text{
+    !?is_code("WID-001")
+    !?is_code("A_B")
+    !?!is_code("wid-001")
+    !?!is_code("")
+    !?!is_code("WID 001")
+    !?!is_code("WID.001")
+    !?is_text("Widget")
+    !?!is_text("   ")
+    !?!is_text("")
+  }
+
+  @test_reorder_helpers{
+    self.assertEqual(stock_status(0,5),"out")
+    self.assertEqual(stock_status(5,5),"low")
+    self.assertEqual(stock_status(6,5),"ok")
+    self.assertEqual(suggested_qty(2,5,20),18)
+    self.assertEqual(suggested_qty(9,5,20),0)
+  }
+}
+
+@main{unittest.main()}

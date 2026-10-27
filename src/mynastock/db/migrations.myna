@@ -1,0 +1,22 @@
+@target(py)
+# SQL lives in Myna source so `myna bundle --zipapp` can embed it: data files do not
+# travel inside the zipapp.
+
+SCHEMA=[
+  "CREATE TABLE IF NOT EXISTS products (id TEXT PRIMARY KEY, sku TEXT NOT NULL UNIQUE, name TEXT NOT NULL CHECK(length(name) > 0), uom TEXT NOT NULL DEFAULT 'ea', unit_cost_cents INTEGER NOT NULL DEFAULT 0 CHECK(unit_cost_cents BETWEEN 0 AND 100000000), reorder_point INTEGER NOT NULL DEFAULT 0 CHECK(reorder_point >= 0), reorder_qty INTEGER NOT NULL DEFAULT 0 CHECK(reorder_qty >= 0), active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0,1)), version INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)",
+  "CREATE TABLE IF NOT EXISTS locations (id TEXT PRIMARY KEY, code TEXT NOT NULL UNIQUE, name TEXT NOT NULL, kind TEXT NOT NULL DEFAULT 'bin' CHECK(kind IN ('warehouse','bin','transit')), active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0,1)))",
+  "CREATE TABLE IF NOT EXISTS operations (id TEXT PRIMARY KEY, idempotency_key TEXT NOT NULL UNIQUE, request_fingerprint TEXT NOT NULL, response_json TEXT NOT NULL, created_at TEXT NOT NULL)",
+  "CREATE TABLE IF NOT EXISTS movements (id TEXT PRIMARY KEY, operation_id TEXT NOT NULL REFERENCES operations(id), type TEXT NOT NULL CHECK(type IN ('receive','issue','adjust','transfer_out','transfer_in')), product_id TEXT NOT NULL REFERENCES products(id), location_id TEXT NOT NULL REFERENCES locations(id), qty_delta INTEGER NOT NULL CHECK(qty_delta <> 0 AND abs(qty_delta) <= 1000000), unit_cost_cents INTEGER NOT NULL CHECK(unit_cost_cents >= 0), transfer_id TEXT, reason TEXT, actor TEXT NOT NULL, occurred_at TEXT NOT NULL)",
+  "CREATE TABLE IF NOT EXISTS stock_levels (product_id TEXT NOT NULL REFERENCES products(id), location_id TEXT NOT NULL REFERENCES locations(id), on_hand INTEGER NOT NULL CHECK(on_hand >= 0), avg_cost_cents INTEGER NOT NULL DEFAULT 0 CHECK(avg_cost_cents >= 0), version INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL, PRIMARY KEY(product_id, location_id))",
+  "CREATE INDEX IF NOT EXISTS movements_by_product_time ON movements(product_id, occurred_at DESC)",
+  "CREATE INDEX IF NOT EXISTS movements_by_operation ON movements(operation_id)",
+  "CREATE UNIQUE INDEX IF NOT EXISTS transfer_legs ON movements(transfer_id, location_id) WHERE transfer_id IS NOT NULL"
+]
+
++@migrate(conn){
+  version=conn.execute("PRAGMA user_version").fetchone()[0]
+  ?version>=1{^}
+  %stmt<-SCHEMA{conn.execute(stmt)}
+  conn.execute("PRAGMA user_version=1")
+  conn.commit()
+}

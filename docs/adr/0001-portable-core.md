@@ -32,7 +32,8 @@ proven by execution rather than assertion.
 
 The laws:
 
-1. No imports (`<`) in shared modules.
+1. Shared modules may import only other modules on the portable allowlist, and only
+   relatively. Absolute imports are rejected.
 2. No exception syntax (`!{`, `!!`, `!^`, `!&`, `!?`) in shared modules. Failures are
    values: `$$Err(code, message, field, meta)` and `$$Result(ok, value, error)`.
 3. No host libraries (no `datetime`, `json`, `sqlite3`, `abc`, `uuid`). Builtins `@J`,
@@ -47,10 +48,27 @@ The laws:
 
 Enforcement:
 
-- `tools/portable.txt` is the allowlist of shared modules.
+- `tools/portable.txt` is the allowlist of shared modules, in dependency order.
 - `tools/check_targets.sh` requires `@target(py, js)` and a successful JS generation.
-- `tools/check_portable.sh` rejects imports, exception syntax, and `new`.
-- `tests/js/parity.test.mjs` executes the same cases as the Python suite.
+- `tools/check_portable.sh` rejects exception syntax and `new`.
+- `tools/check_imports.py` rejects absolute imports and imports of non-portable modules.
+- `tools/assemble.py` produces the single JS compilable file, refusing duplicate
+  top-level names.
+- `tests/js/parity.test.mjs` executes the same cases as the Python suites, including a
+  full service scenario.
+
+Pitfalls discovered while building M1 (all verified, all now covered by tests):
+
+- `d$?k` treats `k` as a **literal** key, not a variable. Dynamic keys must use
+  `lookup(d, k)`, which relies on the portable `in` operator.
+- A subclass `@init` must call `..init()` before touching `self`, because the JS target
+  emits an ES class and requires `super()` first.
+- Return annotations are evaluated when the function is defined. A factory that returns
+  a class must be declared after that class.
+- Myna does not check call arity; extra positional arguments are silently ignored. Parity
+  tests are the only reliable guard against a shifted argument list.
+- `@srt(key=...)` is not documented as portable, so report ordering is left to the
+  presenters and the UI.
 
 ## Consequences
 

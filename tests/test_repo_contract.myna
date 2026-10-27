@@ -1,0 +1,112 @@
+@target(py)
+<unittest
+<mynastock.core:{Product,Location,StockLevel,Movement,Operation}
+<mynastock.adapters.memory:{MemoryRepo}
+<mynastock.adapters.sqlite:{SqliteRepo}
+
+$RepoContractTests<unittest.TestCase{
+  @make_repo{^MemoryRepo()}
+
+  @setUp{
+    .repo=.make_repo()
+  }
+
+  @_product(id:s,sku:s)->Product{
+    ^Product(id,sku,`Product {sku}`,"ea",100,5,10,T,1,"t0","t0")
+  }
+
+  @_location(id:s,code:s)->Location{
+    ^Location(id,code,`Location {code}`,"bin",T)
+  }
+
+  @test_product_roundtrip{
+    p=._product("p1","SKU-1")
+    !?.repo.insert_product(p).ok
+    self.assertEqual(.repo.product_by_id("p1").sku,"SKU-1")
+    self.assertEqual(.repo.product_by_sku("SKU-1").id,"p1")
+    !?.repo.product_by_id("missing")===N
+    !?.repo.product_by_sku("MISSING")===N
+
+    duplicate=._product("p2","SKU-1")
+    !?!.repo.insert_product(duplicate).ok
+  }
+
+  @test_product_update_version{
+    p=._product("p1","SKU-1")
+    .repo.insert_product(p)
+    updated=Product("p1","SKU-1","Renamed","ea",120,5,10,T,2,"t0","t1")
+    !?.repo.update_product(updated,1).ok
+    self.assertEqual(.repo.product_by_id("p1").name,"Renamed")
+    self.assertEqual(.repo.product_by_id("p1").version,2)
+
+    stale=Product("p1","SKU-1","Stale","ea",120,5,10,T,2,"t0","t2")
+    result=.repo.update_product(stale,1)
+    !?!result.ok
+    self.assertEqual(result.error.code,"version.conflict")
+  }
+
+  @test_location_roundtrip{
+    l=._location("l1","WH1")
+    !?.repo.insert_location(l).ok
+    self.assertEqual(.repo.location_by_code("WH1").id,"l1")
+    !?!.repo.insert_location(._location("l2","WH1")).ok
+  }
+
+  @test_apply_writes_everything{
+    .repo.insert_product(._product("p1","SKU-1"))
+    .repo.insert_location(._location("l1","WH1"))
+    op=Operation("o1","key-1","fp-1","{}","t1")
+    m=Movement("m1","o1","receive","p1","l1",5,100,N,N,"tester","t1")
+    level=StockLevel("p1","l1",5,100,1,"t1")
+    !?.repo.apply(op,[m],[level]).ok
+
+    stored=.repo.find_operation("key-1")
+    !?stored!==N
+    self.assertEqual(stored.response_json,"{}")
+    self.assertEqual(.repo.level("p1","l1").on_hand,5)
+    self.assertEqual(#.repo.list_movements(),1)
+    self.assertEqual(#.repo.list_levels(),1)
+    self.assertEqual(#.repo.list_products(),1)
+    self.assertEqual(#.repo.list_locations(),1)
+  }
+
+  @test_apply_rejects_duplicate_key{
+    .repo.insert_product(._product("p1","SKU-1"))
+    .repo.insert_location(._location("l1","WH1"))
+    first=Operation("o1","key-1","fp-1","{}","t1")
+    m=Movement("m1","o1","receive","p1","l1",5,100,N,N,"tester","t1")
+    level=StockLevel("p1","l1",5,100,1,"t1")
+    !?.repo.apply(first,[m],[level]).ok
+
+    second=Operation("o2","key-1","fp-1","{}","t2")
+    m2=Movement("m2","o2","receive","p1","l1",1,100,N,N,"tester","t2")
+    level2=StockLevel("p1","l1",6,100,2,"t2")
+    result=.repo.apply(second,[m2],[level2])
+    !?!result.ok
+    self.assertEqual(result.error.code,"movement.idempotency_conflict")
+    self.assertEqual(#.repo.list_movements(),1)
+    self.assertEqual(.repo.level("p1","l1").on_hand,5)
+  }
+
+  @test_apply_rejects_stale_level{
+    .repo.insert_product(._product("p1","SKU-1"))
+    .repo.insert_location(._location("l1","WH1"))
+    first=Operation("o1","key-1","fp-1","{}","t1")
+    m=Movement("m1","o1","receive","p1","l1",5,100,N,N,"tester","t1")
+    !?.repo.apply(first,[m],[StockLevel("p1","l1",5,100,1,"t1")]).ok
+
+    stale=Operation("o2","key-2","fp-2","{}","t2")
+    m2=Movement("m2","o2","receive","p1","l1",1,100,N,N,"tester","t2")
+    result=.repo.apply(stale,[m2],[StockLevel("p1","l1",6,100,1,"t2")])
+    !?!result.ok
+    self.assertEqual(result.error.code,"version.conflict")
+    self.assertEqual(#.repo.list_movements(),1)
+    self.assertEqual(.repo.level("p1","l1").on_hand,5)
+  }
+}
+
+$SqliteRepoContractTests<RepoContractTests{
+  @make_repo{^SqliteRepo(":memory:")}
+}
+
+@main{unittest.main()}

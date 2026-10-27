@@ -1,1 +1,4 @@
 src/mynastock/core.myna
+src/mynastock/ports.myna
+src/mynastock/app/service.myna
+src/mynastock/adapters/memory.myna

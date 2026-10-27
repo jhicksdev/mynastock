@@ -1,0 +1,153 @@
+@target(py)
+<sqlite3
+<..core:{Product,Location,StockLevel,Movement,Operation,Result,ok,fail}
+<..ports:{Repo}
+<..db.migrations:{migrate}
+
+@_product(row)->Product{
+  ^Product(row$id,row$sku,row$name,row$uom,row$unit_cost_cents,row$reorder_point,row$reorder_qty,row$active==1,row$version,row$created_at,row$updated_at)
+}
+
+@_location(row)->Location{
+  ^Location(row$id,row$code,row$name,row$kind,row$active==1)
+}
+
+@_level(row)->StockLevel{
+  ^StockLevel(row$product_id,row$location_id,row$on_hand,row$avg_cost_cents,row$version,row$updated_at)
+}
+
+@_movement(row)->Movement{
+  ^Movement(row$id,row$operation_id,row$type,row$product_id,row$location_id,row$qty_delta,row$unit_cost_cents,row$transfer_id,row$reason,row$actor,row$occurred_at)
+}
+
+$SqliteRepo<Repo{
+  @init(path:s){
+    ..init()
+    .conn=sqlite3.connect(path,check_same_thread=F)
+    .conn.row_factory=sqlite3.Row
+    .conn.execute("PRAGMA foreign_keys=ON")
+    .conn.execute("PRAGMA busy_timeout=5000")
+    ?path!=":memory:"{.conn.execute("PRAGMA journal_mode=WAL")}
+    migrate(.conn)
+  }
+
+  @close{
+    .conn.close()
+  }
+
+  @product_by_sku(sku:s)->Product?{
+    row=.conn.execute("SELECT * FROM products WHERE sku=?",[sku]).fetchone()
+    ?row===N{^N}
+    ^_product(row)
+  }
+
+  @product_by_id(id:s)->Product?{
+    row=.conn.execute("SELECT * FROM products WHERE id=?",[id]).fetchone()
+    ?row===N{^N}
+    ^_product(row)
+  }
+
+  @location_by_code(code:s)->Location?{
+    row=.conn.execute("SELECT * FROM locations WHERE code=?",[code]).fetchone()
+    ?row===N{^N}
+    ^_location(row)
+  }
+
+  @level(pid:s,lid:s)->StockLevel?{
+    row=.conn.execute("SELECT * FROM stock_levels WHERE product_id=? AND location_id=?",[pid,lid]).fetchone()
+    ?row===N{^N}
+    ^_level(row)
+  }
+
+  @find_operation(key:s)->Operation?{
+    row=.conn.execute("SELECT * FROM operations WHERE idempotency_key=?",[key]).fetchone()
+    ?row===N{^N}
+    ^Operation(row$id,row$idempotency_key,row$request_fingerprint,row$response_json,row$created_at)
+  }
+
+  @insert_product(p:Product)->Result{
+    !{
+      .conn.execute("INSERT INTO products (id,sku,name,uom,unit_cost_cents,reorder_point,reorder_qty,active,version,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)",[p.id,p.sku,p.name,p.uom,p.unit_cost_cents,p.reorder_point,p.reorder_qty,p.active,p.version,p.created_at,p.updated_at])
+      .conn.commit()
+      ^ok(p.id)
+    }!!e:Exception{
+      .conn.rollback()
+      message=@str(e)
+      ?"UNIQUE"<-message{^fail("product.duplicate_sku",`SKU {p.sku} already exists`,"sku")}
+      ^fail("repo.error",message)
+    }
+  }
+
+  @update_product(p:Product,expected_version:i)->Result{
+    !{
+      cursor=.conn.execute("UPDATE products SET sku=?,name=?,uom=?,unit_cost_cents=?,reorder_point=?,reorder_qty=?,active=?,version=?,updated_at=? WHERE id=? AND version=?",[p.sku,p.name,p.uom,p.unit_cost_cents,p.reorder_point,p.reorder_qty,p.active,p.version,p.updated_at,p.id,expected_version])
+      .conn.commit()
+      ?cursor.rowcount==0{^fail("version.conflict","The product was modified by someone else","version")}
+      ^ok(p.id)
+    }!!e:Exception{
+      .conn.rollback()
+      message=@str(e)
+      ?"UNIQUE"<-message{^fail("product.duplicate_sku",`SKU {p.sku} already exists`,"sku")}
+      ^fail("repo.error",message)
+    }
+  }
+
+  @insert_location(l:Location)->Result{
+    !{
+      .conn.execute("INSERT INTO locations (id,code,name,kind,active) VALUES (?,?,?,?,?)",[l.id,l.code,l.name,l.kind,l.active])
+      .conn.commit()
+      ^ok(l.id)
+    }!!e:Exception{
+      .conn.rollback()
+      message=@str(e)
+      ?"UNIQUE"<-message{^fail("location.duplicate_code",`Location code {l.code} already exists`,"code")}
+      ^fail("repo.error",message)
+    }
+  }
+
+  @apply(op:Operation,ms:[Movement],levels:[StockLevel])->Result{
+    !{
+      .conn.execute("BEGIN IMMEDIATE")
+      .conn.execute("INSERT INTO operations (id,idempotency_key,request_fingerprint,response_json,created_at) VALUES (?,?,?,?,?)",[op.id,op.idempotency_key,op.request_fingerprint,op.response_json,op.created_at])
+      %m<-ms{
+        .conn.execute("INSERT INTO movements (id,operation_id,type,product_id,location_id,qty_delta,unit_cost_cents,transfer_id,reason,actor,occurred_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)",[m.id,m.operation_id,m.type,m.product_id,m.location_id,m.qty_delta,m.unit_cost_cents,m.transfer_id,m.reason,m.actor,m.occurred_at])
+      }
+      conflict=F
+      %level<-levels{
+        cursor=.conn.execute("INSERT INTO stock_levels (product_id,location_id,on_hand,avg_cost_cents,version,updated_at) VALUES (?,?,?,?,?,?) ON CONFLICT(product_id,location_id) DO UPDATE SET on_hand=excluded.on_hand,avg_cost_cents=excluded.avg_cost_cents,version=excluded.version,updated_at=excluded.updated_at WHERE stock_levels.version=excluded.version-1",[level.product_id,level.location_id,level.on_hand,level.avg_cost_cents,level.version,level.updated_at])
+        ?cursor.rowcount==0{conflict=T}
+      }
+      ?conflict{
+        .conn.rollback()
+        ^fail("version.conflict","Stock level changed while planning; retry","version")
+      }
+      .conn.commit()
+      ^ok(op.id)
+    }!!e:Exception{
+      .conn.rollback()
+      message=@str(e)
+      ?"UNIQUE"<-message{^fail("movement.idempotency_conflict","Idempotency key already used")}
+      ^fail("repo.error",message)
+    }
+  }
+
+  @list_products->[Product]{
+    rows=.conn.execute("SELECT * FROM products ORDER BY sku").fetchall()
+    ^[_product(row)|row<-rows]
+  }
+
+  @list_locations->[Location]{
+    rows=.conn.execute("SELECT * FROM locations ORDER BY code").fetchall()
+    ^[_location(row)|row<-rows]
+  }
+
+  @list_levels->[StockLevel]{
+    rows=.conn.execute("SELECT * FROM stock_levels ORDER BY product_id,location_id").fetchall()
+    ^[_level(row)|row<-rows]
+  }
+
+  @list_movements->[Movement]{
+    rows=.conn.execute("SELECT * FROM movements ORDER BY occurred_at,id").fetchall()
+    ^[_movement(row)|row<-rows]
+  }
+}

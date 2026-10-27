@@ -8,7 +8,9 @@
 
 MynaStock is an inventory management system written in [Myna](https://github.com/jhicksdev/myna), an ultra-dense language that transpiles 1:1 to Python 3.12 and to a portable subset of JavaScript. One import-free kernel is intended to power a zero-dependency HTTP server, an ASGI deployment, and a static browser demo compiled from the same source.
 
-> **Status: M0 (scaffold).** The portable kernel primitives, the Python/JS parity harness, and the portability gates are in place. The ledger, API, persistence, and browser demo land in M1-M3.
+> **Status: M1 (ledger).** Catalogue, append-only movements with per-location moving
+> average, idempotent posting, memory + SQLite repositories, and cross-target parity are
+> implemented. The HTTP API, browser demo, and documentation site land in M2-M4.
 
 ## Quickstart
 
@@ -27,7 +29,7 @@ myna run src/mynastock/cli.myna version         # CLI
 
 | Target | What it proves |
 |---|---|
-| `lint` | every listed portable module declares `@target(py, js)`, generates for JS, and contains no imports, exceptions, or `new` |
+| `lint` | every listed portable module declares `@target(py, js)`, generates for JS, imports only other portable modules, and contains no exceptions or `new` |
 | `test-py` | the kernel behaves correctly under CPython |
 | `lint-py` | the generated Python has no syntax or undefined-name errors |
 | `test-js` | the same cases pass under Node against the compiled ES module |
@@ -61,12 +63,30 @@ The rule is simple: shared code imports nothing and raises nothing, so it surviv
 
 See [`docs/adr/0001-portable-core.md`](docs/adr/0001-portable-core.md) for the evidence behind each rule.
 
+## What works now
+
+- **Catalogue** — uppercase SKUs and location codes, explicit validation, optimistic
+  `version` updates.
+- **Ledger** — `receive`, `issue`, `adjust`, `transfer`; append-only movements; balances
+  materialized in the same transaction; per-location moving weighted average.
+- **Idempotency** — an `operations` row stores the canonical request fingerprint and the
+  serialized response. Replay returns the original result; a changed payload is rejected.
+- **Repositories** — in-memory (tests, browser) and SQLite (stdlib) behind one contract,
+  with optimistic `version` checks so concurrent planners cannot double-post.
+- **Reports** — stock rows, reorder suggestions, valuation by product or location.
+
 ## Repository layout
 
 ```
-src/mynastock/        kernel, entries, (M1+) ports, app, http, adapters
+src/mynastock/
+  core.myna           portable kernel: entities, validation, ledger rules, Result
+  ports.myna          repository contract
+  app/service.myna    use cases, idempotency, reports
+  adapters/           memory.myna, sqlite.myna
+  db/migrations.myna  schema as Myna constants (survives the .pyz bundle)
+  main.myna, cli.myna entry points
 tests/                unittest sources (compiled to build/py) + Node parity suite
-tools/                portability gates and the portable-module allowlist
+tools/                portability gates, import checker, JS assembler
 docs/adr/             architecture decision records
 build/                generated Python and JavaScript (gitignored)
 ```
@@ -75,7 +95,8 @@ Tests are compiled before they run, so they import the installed-shaped package 
 
 ## Roadmap
 
-- **M1** — append-only movement ledger, per-location moving average, SQLite + memory repositories.
+- **M0** — scaffold, portability gates, parity harness. Done.
+- **M1** — ledger, moving average, idempotency, memory + SQLite repositories. Done.
 - **M2** — portable router, stdlib HTTP adapter, `mynastock.pyz` with zero installed dependencies.
 - **M3** — browser demo assembled from the same kernel, GitHub Pages, source viewer.
 - **M4** — Starlette adapter, generated OpenAPI, documentation site, v1.0.0.

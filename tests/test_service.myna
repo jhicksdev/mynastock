@@ -1,0 +1,207 @@
+@target(py)
+<unittest
+<mynastock.core:{Result}
+<mynastock.app.service:{NewProduct,NewLocation,UpdateProduct,MoveCmd,create_product,create_location,update_product,post_movement,stock_rows,reorder_rows,valuation}
+<mynastock.adapters.memory:{MemoryRepo}
+
+$ServiceTests<unittest.TestCase{
+  @setUp{
+    .repo=MemoryRepo()
+    .now="2026-01-01T00:00:00Z"
+    .n=0
+  }
+
+  @_id(prefix:s)->s{
+    .n+=1
+    ^`{prefix}-{.n}`
+  }
+
+  @_product(sku:s,cost:i=250)->Result{
+    ^create_product(NewProduct(sku,`Widget {sku}`,cost,5,20),.repo,.now,._id("p"))
+  }
+
+  @_locations{
+    create_location(NewLocation("WH1","Main warehouse","warehouse"),.repo,._id("l"))
+    create_location(NewLocation("BIN-A","Pick face A"),.repo,._id("l"))
+  }
+
+  @_move(kind:s,sku:s,loc:s,qty:i,key:s,to:s="",cost:i?=N,reason:s?=N)->Result{
+    ids=[._id("o"),._id("m"),._id("m")]
+    ^post_movement(MoveCmd(kind,sku,loc,to,qty,cost,reason,N,"tester",key),.repo,.now,ids)
+  }
+
+  @_find(rows:[{s:A}],location:s)->{s:A}?{
+    %row<-rows{
+      ?row$location==location{^row}
+    }
+    ^N
+  }
+
+  @test_create_product{
+    r=._product("WID-001")
+    !?r.ok
+    self.assertEqual(r.value$sku,"WID-001")
+    self.assertEqual(r.value$version,1)
+
+    r=._product("WID-001")
+    !?!r.ok
+    self.assertEqual(r.error.code,"product.duplicate_sku")
+
+    r=._product("wid-001")
+    !?!r.ok
+    self.assertEqual(r.error.code,"sku.invalid")
+
+    r=create_product(NewProduct("OK-1","  ",250),.repo,.now,._id("p"))
+    !?!r.ok
+    self.assertEqual(r.error.code,"name.invalid")
+
+    r=create_product(NewProduct("OK-2","Thing",-1),.repo,.now,._id("p"))
+    !?!r.ok
+    self.assertEqual(r.error.code,"cost.invalid")
+  }
+
+  @test_create_location{
+    r=create_location(NewLocation("WH1","Main","warehouse"),.repo,._id("l"))
+    !?r.ok
+    r=create_location(NewLocation("WH1","Main again","bin"),.repo,._id("l"))
+    !?!r.ok
+    self.assertEqual(r.error.code,"location.duplicate_code")
+
+    r=create_location(NewLocation("wh1","lower","bin"),.repo,._id("l"))
+    !?!r.ok
+    self.assertEqual(r.error.code,"code.invalid")
+
+    r=create_location(NewLocation("WH2","Bad kind","shelf"),.repo,._id("l"))
+    !?!r.ok
+    self.assertEqual(r.error.code,"kind.invalid")
+  }
+
+  @test_update_product_versions{
+    created=._product("WID-001")
+    pid=created.value$id
+    r=update_product(UpdateProduct(pid,"WID-001","Widget v2",300,5,20,"ea",T,1),.repo,.now)
+    !?r.ok
+    self.assertEqual(r.value$name,"Widget v2")
+    self.assertEqual(r.value$version,2)
+
+    r=update_product(UpdateProduct(pid,"WID-001","Stale",300,5,20,"ea",T,1),.repo,.now)
+    !?!r.ok
+    self.assertEqual(r.error.code,"version.conflict")
+
+    r=update_product(UpdateProduct("nope","WID-001","Missing",300,5,20,"ea",T,1),.repo,.now)
+    !?!r.ok
+    self.assertEqual(r.error.code,"product.unknown")
+  }
+
+  @test_receive_stock_and_reports{
+    ._product("WID-001")
+    ._locations()
+    r=._move("receive","WID-001","WH1",10,"k1",cost=250)
+    !?r.ok
+    self.assertEqual(#r.value$movements,1)
+    self.assertEqual(r.value$levels[0]$on_hand,10)
+
+    rows=stock_rows(.repo).value
+    self.assertEqual(#rows,1)
+    self.assertEqual(rows[0]$status,"ok")
+    self.assertEqual(#reorder_rows(.repo).value,0)
+
+    r=._move("receive","WID-001","WH1",2,"k2",cost=350)
+    !?r.ok
+    self.assertEqual(r.value$levels[0]$avg_cost_cents,266)
+
+    r=._move("issue","WID-001","WH1",9,"k3")
+    !?r.ok
+    self.assertEqual(r.value$levels[0]$on_hand,3)
+
+    reorder=reorder_rows(.repo).value
+    self.assertEqual(#reorder,1)
+    self.assertEqual(reorder[0]$suggested_qty,17)
+
+    value=valuation(.repo,"location").value
+    self.assertEqual(value$total_cents,798)
+    self.assertEqual(#value$items,1)
+  }
+
+  @test_transfer_moves_stock{
+    ._product("WID-001")
+    ._locations()
+    ._move("receive","WID-001","WH1",10,"k1",cost=250)
+    r=._move("transfer","WID-001","WH1",4,"k2",to="BIN-A")
+    !?r.ok
+    self.assertEqual(#r.value$movements,2)
+    self.assertEqual(r.value$movements[0]$type,"transfer_out")
+    self.assertEqual(r.value$movements[1]$type,"transfer_in")
+
+    rows=stock_rows(.repo).value
+    self.assertEqual(#rows,2)
+    source=._find(rows,"WH1")
+    destination=._find(rows,"BIN-A")
+    !?source!==N
+    !?destination!==N
+    self.assertEqual(source$on_hand,6)
+    self.assertEqual(destination$on_hand,4)
+    self.assertEqual(#.repo.list_movements(),3)
+  }
+
+  @test_idempotency{
+    ._product("WID-001")
+    ._locations()
+    first=._move("receive","WID-001","WH1",10,"same-key",cost=250)
+    !?first.ok
+    replay=._move("receive","WID-001","WH1",10,"same-key",cost=250)
+    !?replay.ok
+    self.assertEqual(first.value,replay.value)
+    self.assertEqual(#.repo.list_movements(),1)
+
+    conflict=._move("receive","WID-001","WH1",11,"same-key",cost=250)
+    !?!conflict.ok
+    self.assertEqual(conflict.error.code,"movement.idempotency_conflict")
+
+    missing=._move("receive","WID-001","WH1",1,"")
+    !?!missing.ok
+    self.assertEqual(missing.error.code,"idempotency.required")
+  }
+
+  @test_movement_errors{
+    ._product("WID-001")
+    ._locations()
+
+    r=._move("receive","NOPE","WH1",1,"e1")
+    !?!r.ok
+    self.assertEqual(r.error.code,"product.unknown")
+
+    r=._move("receive","WID-001","NOPE",1,"e2")
+    !?!r.ok
+    self.assertEqual(r.error.code,"location.unknown")
+
+    r=._move("teleport","WID-001","WH1",1,"e3")
+    !?!r.ok
+    self.assertEqual(r.error.code,"movement.invalid_type")
+
+    r=._move("issue","WID-001","WH1",1,"e4")
+    !?!r.ok
+    self.assertEqual(r.error.code,"stock.insufficient")
+
+    r=._move("adjust","WID-001","WH1",-1,"e5")
+    !?!r.ok
+    self.assertEqual(r.error.code,"adjust.reason_required")
+
+    ._move("receive","WID-001","WH1",5,"e6",cost=100)
+    r=._move("transfer","WID-001","WH1",1,"e7",to="WH1")
+    !?!r.ok
+    self.assertEqual(r.error.code,"transfer.same_location")
+  }
+
+  @test_inactive_product{
+    created=._product("WID-001")
+    pid=created.value$id
+    update_product(UpdateProduct(pid,"WID-001","Widget",250,5,20,"ea",F,1),.repo,.now)
+    ._locations()
+    r=._move("receive","WID-001","WH1",1,"k1")
+    !?!r.ok
+    self.assertEqual(r.error.code,"product.inactive")
+  }
+}
+
+@main{unittest.main()}

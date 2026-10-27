@@ -1,0 +1,116 @@
+@target(py, js)
+<..core:{Product,Location,StockLevel,Movement,Operation,Result,ok,fail,lookup}
+<..ports:{Repo}
+
+# In-memory repository. Used by unit tests, the reconciliation fuzz test, and the
+# browser demo (through a storage wrapper). Dictionaries hold identity lookups;
+# id lists preserve iteration order without relying on host iteration semantics.
+$MemoryRepo<Repo{
+  @init{
+    ..init()
+    .products={}
+    .product_ids=[]
+    .skus={}
+    .locations={}
+    .location_ids=[]
+    .codes={}
+    .levels={}
+    .level_keys=[]
+    .movement_list=[]
+    .operations={}
+  }
+
+  @product_by_sku(sku:s)->Product?{
+    pid=lookup(.skus,sku)
+    ?pid===N{^N}
+    ^lookup(.products,pid)
+  }
+
+  @product_by_id(id:s)->Product?{
+    ^lookup(.products,id)
+  }
+
+  @location_by_code(code:s)->Location?{
+    lid=lookup(.codes,code)
+    ?lid===N{^N}
+    ^lookup(.locations,lid)
+  }
+
+  @level(pid:s,lid:s)->StockLevel?{
+    ^lookup(.levels,pid+"|"+lid)
+  }
+
+  @find_operation(key:s)->Operation?{
+    ^lookup(.operations,key)
+  }
+
+  @insert_product(p:Product)->Result{
+    pid=p.id
+    sku=p.sku
+    ?lookup(.products,pid)!==N{^fail("product.duplicate_id",`Product id {pid} already exists`,"id")}
+    ?lookup(.skus,sku)!==N{^fail("product.duplicate_sku",`SKU {sku} already exists`,"sku")}
+    .products[p.id]=p
+    .skus[p.sku]=p.id
+    .product_ids.append(p.id)
+    ^ok(p.id)
+  }
+
+  @update_product(p:Product,expected_version:i)->Result{
+    pid=p.id
+    current=lookup(.products,pid)
+    ?current===N{^fail("product.unknown",`No product with id {pid}`,"id")}
+    ?current.version!=expected_version{^fail("version.conflict","The product was modified by someone else","version")}
+    .products[p.id]=p
+    ^ok(p.id)
+  }
+
+  @insert_location(l:Location)->Result{
+    lid=l.id
+    code=l.code
+    ?lookup(.locations,lid)!==N{^fail("location.duplicate_id",`Location id {lid} already exists`,"id")}
+    ?lookup(.codes,code)!==N{^fail("location.duplicate_code",`Location code {code} already exists`,"code")}
+    .locations[l.id]=l
+    .codes[l.code]=l.id
+    .location_ids.append(l.id)
+    ^ok(l.id)
+  }
+
+  @apply(op:Operation,ms:[Movement],levels:[StockLevel])->Result{
+    key=op.idempotency_key
+    ?lookup(.operations,key)!==N{^fail("movement.idempotency_conflict","Idempotency key already used")}
+    # Validate every level version before writing anything.
+    %level<-levels{
+      lkey=level.product_id+"|"+level.location_id
+      current=lookup(.levels,lkey)
+      ?current!==N&&current.version!=level.version-1{^fail("version.conflict","Stock level changed while planning; retry","version")}
+    }
+    .operations[key]=op
+    %m<-ms{.movement_list.append(m)}
+    %level<-levels{
+      lkey=level.product_id+"|"+level.location_id
+      ?lookup(.levels,lkey)===N{.level_keys.append(lkey)}
+      .levels[lkey]=level
+    }
+    ^ok(op.id)
+  }
+
+  @list_products->[Product]{
+    ^[.products[pid]|pid<-.product_ids]
+  }
+
+  @list_locations->[Location]{
+    ^[.locations[lid]|lid<-.location_ids]
+  }
+
+  @list_levels->[StockLevel]{
+    ^[.levels[key]|key<-.level_keys]
+  }
+
+  @list_movements->[Movement]{
+    ^.movement_list
+  }
+}
+
++@new_memory_repo->MemoryRepo{
+  ^MemoryRepo()
+}

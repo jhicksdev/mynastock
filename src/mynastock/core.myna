@@ -4,6 +4,52 @@
 
 MAX_QTY=1000000
 MAX_COST_CENTS=100000000
+MAX_TEXT=200
+MAX_CODE=40
+
+# ---------------------------------------------------------------------------
+# Result values
+# ---------------------------------------------------------------------------
+
++$$Err(code:s,message:s,field:s?=N,meta:{s:A}?=N)
++$$Result(ok:b,value:A=N,error:Err?=N)
+
++@ok(v:A=N)->Result{^Result(T,v,N)}
++@fail(code:s,message:s,field:s?=N,meta:{s:A}?=N)->Result{^Result(F,N,Err(code,message,field,meta))}
+
+# ---------------------------------------------------------------------------
+# Entities
+# ---------------------------------------------------------------------------
+
++$$Product(id:s,sku:s,name:s,uom:s="ea",unit_cost_cents:i=0,reorder_point:i=0,reorder_qty:i=0,active:b=T,version:i=1,created_at:s="",updated_at:s=""){
+  @to_dict->{s:A}=>{.id,.sku,.name,.uom,.unit_cost_cents,.reorder_point,.reorder_qty,.active,.version,.created_at,.updated_at}
+}
+
++$$Location(id:s,code:s,name:s,kind:s="bin",active:b=T){
+  @to_dict->{s:A}=>{.id,.code,.name,.kind,.active}
+}
+
++$$StockLevel(product_id:s,location_id:s,on_hand:i=0,avg_cost_cents:i=0,version:i=0,updated_at:s=""){
+  @to_dict->{s:A}=>{.product_id,.location_id,.on_hand,.avg_cost_cents,.version,.updated_at}
+}
+
++$$Movement(id:s,operation_id:s,type:s,product_id:s,location_id:s,qty_delta:i,unit_cost_cents:i,transfer_id:s?=N,reason:s?=N,actor:s="system",occurred_at:s=""){
+  @to_dict->{s:A}=>{.id,.operation_id,.type,.product_id,.location_id,.qty_delta,.unit_cost_cents,.transfer_id,.reason,.actor,.occurred_at}
+}
+
++$$Operation(id:s,idempotency_key:s,request_fingerprint:s,response_json:s,created_at:s)
+
++$$Leg(location_id:s,qty_delta:i,unit_cost_cents:i){
+  @to_dict->{s:A}=>{.location_id,.qty_delta,.unit_cost_cents}
+}
++$$Plan(legs:[Leg],levels:[StockLevel])
++$$Valuation(key:s,qty:i,value_cents:i){
+  @to_dict->{s:A}=>{.key,.qty,.value_cents}
+}
+
+# ---------------------------------------------------------------------------
+# Questions about strings and money
+# ---------------------------------------------------------------------------
 
 +@concat(xs:[s],sep:s="")->s{
   out=""
@@ -19,6 +65,28 @@ MAX_COST_CENTS=100000000
   digits="0123456789"
   %i<-.. #s{
     ?s[i]!<-digits{^F}
+  }
+  ^T
+}
+
++@is_blank(s:s)->b{
+  %i<-.. #s{
+    ?s[i]!<-" \t\r\n"{^F}
+  }
+  ^T
+}
+
++@is_text(s:s,max_len:i=MAX_TEXT)->b{
+  ?is_blank(s){^F}
+  ^#s<=max_len
+}
+
++@is_code(s:s)->b{
+  ?#s==0{^F}
+  ?#s>MAX_CODE{^F}
+  allowed="ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_"
+  %i<-.. #s{
+    ?s[i]!<-allowed{^F}
   }
   ^T
 }
@@ -60,6 +128,119 @@ MAX_COST_CENTS=100000000
   ?on_hand+qty<=0{^0}
   ^(on_hand*avg+qty*cost)//(on_hand+qty)
 }
+
+# ---------------------------------------------------------------------------
+# Validation
+# ---------------------------------------------------------------------------
+
++@check_qty(qty:i)->Err?{
+  ?qty<=0{^Err("qty.invalid","Quantity must be positive","qty")}
+  ?qty>MAX_QTY{^Err("qty.too_large",`Quantity must be at most {MAX_QTY}`,"qty")}
+  ^N
+}
+
++@check_cost(cents:i)->Err?{
+  ?cents<0{^Err("cost.invalid","Unit cost must not be negative","unit_cost_cents")}
+  ?cents>MAX_COST_CENTS{^Err("cost.too_large",`Unit cost must be at most {MAX_COST_CENTS} cents`,"unit_cost_cents")}
+  ^N
+}
+
+# `d$?key` treats the key as a literal name. Dynamic keys go through lookup(), which
+# uses the portable `in` operator and indexing instead.
++@lookup(d:{s:A},key:s)->A{
+  ?key<-d{^d[key]}
+  ^N
+}
+
++@fingerprint(parts:[s])->s{
+  out=""
+  %i<-.. #parts{
+    part=parts[i]
+    out+=@str(#part)+":"+part
+  }
+  ^out
+}
+
+# ---------------------------------------------------------------------------
+# Ledger planning (pure)
+# ---------------------------------------------------------------------------
+
++@on_hand_of(level:StockLevel?)->i{
+  ?level===N{^0}
+  ^level.on_hand
+}
+
++@avg_of(level:StockLevel?)->i{
+  ?level===N{^0}
+  ^level.avg_cost_cents
+}
+
++@next_level(level:StockLevel?,pid:s,lid:s,on_hand:i,avg:i,now:s)->StockLevel{
+  v=1
+  ?level!==N{v=level.version+1}
+  ^StockLevel(pid,lid,on_hand,avg,v,now)
+}
+
++@plan_receive(level:StockLevel?,pid:s,lid:s,qty:i,cost:i,now:s)->Result{
+  e=check_qty(qty)
+  ?e!==N{^Result(F,N,e)}
+  e=check_cost(cost)
+  ?e!==N{^Result(F,N,e)}
+  have=on_hand_of(level)
+  avg=avg_of(level)
+  new_qty=have+qty
+  ?new_qty>MAX_QTY{^fail("stock.too_large",`On-hand quantity would exceed {MAX_QTY}`,"qty")}
+  new_avg=blend(have,avg,qty,cost)
+  ^ok(Plan([Leg(lid,qty,cost)],[next_level(level,pid,lid,new_qty,new_avg,now)]))
+}
+
++@plan_issue(level:StockLevel?,pid:s,lid:s,qty:i,now:s)->Result{
+  e=check_qty(qty)
+  ?e!==N{^Result(F,N,e)}
+  have=on_hand_of(level)
+  ?level===N||have<qty{^fail("stock.insufficient","Not enough stock at this location","qty",{available:have})}
+  avg=avg_of(level)
+  ^ok(Plan([Leg(lid,-qty,avg)],[next_level(level,pid,lid,have-qty,avg,now)]))
+}
+
++@plan_adjust(level:StockLevel?,pid:s,lid:s,delta:i,cost:i?,reason:s?,now:s)->Result{
+  ?delta==0{^fail("qty.invalid","Adjustment delta must not be zero","qty")}
+  ?delta>MAX_QTY||delta < -MAX_QTY{^fail("qty.too_large","Adjustment delta is out of range","qty")}
+  ?reason===N||is_blank(reason){^fail("adjust.reason_required","An adjustment requires a reason","reason")}
+  have=on_hand_of(level)
+  avg=avg_of(level)
+  new_qty=have+delta
+  ?new_qty<0{^fail("stock.insufficient","Adjustment would make stock negative","qty",{available:have})}
+  ?new_qty>MAX_QTY{^fail("stock.too_large","On-hand quantity is out of range","qty")}
+  leg_cost=avg
+  new_avg=avg
+  ?delta>0{
+    c=cost===N?avg:cost
+    e=check_cost(c)
+    ?e!==N{^Result(F,N,e)}
+    leg_cost=c
+    new_avg=blend(have,avg,delta,c)
+  }
+  ^ok(Plan([Leg(lid,delta,leg_cost)],[next_level(level,pid,lid,new_qty,new_avg,now)]))
+}
+
++@plan_transfer(src:StockLevel?,dst:StockLevel?,pid:s,from_lid:s,to_lid:s,qty:i,now:s)->Result{
+  ?from_lid==to_lid{^fail("transfer.same_location","Source and destination must differ","to_location")}
+  e=check_qty(qty)
+  ?e!==N{^Result(F,N,e)}
+  have=on_hand_of(src)
+  ?src===N||have<qty{^fail("stock.insufficient","Not enough stock at the source location","qty",{available:have})}
+  avg=avg_of(src)
+  dst_qty=on_hand_of(dst)
+  dst_avg=avg_of(dst)
+  legs=[Leg(from_lid,-qty,avg),Leg(to_lid,qty,avg)]
+  levels=[next_level(src,pid,from_lid,have-qty,avg,now),next_level(dst,pid,to_lid,dst_qty+qty,blend(dst_qty,dst_avg,qty,avg),now)]
+  ^ok(Plan(legs,levels))
+}
+
+# ---------------------------------------------------------------------------
+# Reporting helpers (pure)
+# ---------------------------------------------------------------------------
 
 +@stock_status(on_hand:i,reorder_point:i)->s{
   ?on_hand<=0{^"out"}

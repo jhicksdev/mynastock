@@ -1,0 +1,104 @@
+@target(py)
+<unittest
+<mynastock.core:{lookup}
+<mynastock.app.service:{NewProduct,NewLocation,MoveCmd,create_product,create_location,post_movement}
+<mynastock.adapters.memory:{MemoryRepo}
+
+$ReconcileFuzzTests<unittest.TestCase{
+  @setUp{
+    .repo=MemoryRepo()
+    .seed=20261027
+    .n=0
+    .ok_count=0
+    .skus=["SKU-A","SKU-B","SKU-C"]
+    .locations=["WH1","BIN-A"]
+    %i<-.. 3{
+      create_product(NewProduct(.skus[i],`Product {i}`,100+i*10,5,20),.repo,"t0",`p{i}`)
+    }
+    %i<-.. 2{
+      create_location(NewLocation(.locations[i],`Location {i}`,i==0?"warehouse":"bin"),.repo,`l{i}`)
+    }
+  }
+
+  @_rand(mod:i)->i{
+    .seed=(.seed*48271)%2147483647
+    ^.seed%mod
+  }
+
+  @test_movements_reconcile_with_balances{
+    %step<-.. 500{
+      r=._rand(10)
+      kind="receive"
+      ?r<3{kind="receive"}
+      :?r<6{kind="issue"}
+      :?r<8{kind="transfer"}
+      :{kind="adjust"}
+
+      sku=.skus[._rand(3)]
+      location=.locations[._rand(2)]
+      destination=""
+      ?kind=="transfer"{
+        destination=.locations[1]
+        ?destination==location{destination=.locations[0]}
+      }
+
+      qty=1+._rand(20)
+      ?kind=="adjust"&&._rand(2)==0{qty=-qty}
+
+      cost_arg=N
+      ?kind=="receive"{cost_arg=80+._rand(200)}
+      reason_arg=N
+      ?kind=="adjust"{reason_arg="fuzz"}
+
+      .n+=1
+      ids=[`o{.n}`,`m{.n}a`,`m{.n}b`]
+      result=post_movement(MoveCmd(kind,sku,location,destination,qty,cost_arg,reason_arg,N,"fuzz",`k{.n}`),.repo,"2026-01-01T00:00:00Z",ids)
+      ?result.ok{.ok_count+=1}
+    }
+
+    !?.ok_count>0
+    movements=.repo.list_movements()
+    levels=.repo.list_levels()
+
+    keys=[]
+    totals={}
+    %m<-movements{
+      key=m.product_id+"|"+m.location_id
+      ?lookup(totals,key)===N{
+        keys.append(key)
+        totals[key]=0
+      }
+      totals[key]=lookup(totals,key)+m.qty_delta
+    }
+
+    %level<-levels{
+      key=level.product_id+"|"+level.location_id
+      self.assertEqual(lookup(totals,key),level.on_hand)
+      !?level.on_hand>=0
+    }
+
+    movement_total=0
+    %m<-movements{movement_total+=m.qty_delta}
+    level_total=0
+    %level<-levels{level_total+=level.on_hand}
+    self.assertEqual(movement_total,level_total)
+
+    transfer_ids=[]
+    transfer_totals={}
+    %m<-movements{
+      ?m.transfer_id!==N{
+        tid=m.transfer_id
+        ?lookup(transfer_totals,tid)===N{
+          transfer_ids.append(tid)
+          transfer_totals[tid]=0
+        }
+        transfer_totals[tid]=lookup(transfer_totals,tid)+m.qty_delta
+      }
+    }
+    %tid<-transfer_ids{
+      self.assertEqual(lookup(transfer_totals,tid),0)
+    }
+  }
+}
+
+@main{unittest.main()}
