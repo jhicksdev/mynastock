@@ -1,0 +1,5 @@
+myna-lang==0.4.1
+ruff>=0.6
+starlette>=0.40
+uvicorn>=0.30
+mkdocs-material>=9.5

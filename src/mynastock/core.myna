@@ -1,0 +1,75 @@
+@target(py, js)
+# MynaStock portable kernel: the subset that must run identically on Python and JS.
+# No imports, no exceptions, no host libraries. See docs/adr/0001-portable-core.md.
+
+MAX_QTY=1000000
+MAX_COST_CENTS=100000000
+
++@concat(xs:[s],sep:s="")->s{
+  out=""
+  %i<-.. #xs{
+    ?i>0{out+=sep}
+    out+=xs[i]
+  }
+  ^out
+}
+
++@is_digits(s:s)->b{
+  ?#s==0{^F}
+  digits="0123456789"
+  %i<-.. #s{
+    ?s[i]!<-digits{^F}
+  }
+  ^T
+}
+
++@parse_cents(text:s)->i?{
+  ?#text==0{^N}
+  dot=-1
+  %i<-.. #text{
+    c=text[i]
+    ?c=="."{
+      ?dot>=0{^N}
+      dot=i
+    }:?c!<-"0123456789"{^N}
+  }
+  ?dot==0{^N}
+  ?dot==#text-1{^N}
+  whole=dot<0?text:text[0:dot]
+  frac=dot<0?"":text[dot+1:]
+  ?#frac>2{^N}
+  ?!is_digits(whole){^N}
+  ?#frac>0&&!is_digits(frac){^N}
+  w=@int(whole)
+  f=0
+  ?#frac==1{f=@int(frac)*10}
+  :?#frac==2{f=@int(frac)}
+  ^w*100+f
+}
+
++@format_cents(cents:i)->s{
+  neg=cents<0
+  a=neg?-cents:cents
+  w=a//100
+  f=a%100
+  fs=f<10?`0{f}`:@str(f)
+  ^(neg?"-":"")+@str(w)+"."+fs
+}
+
++@blend(on_hand:i,avg:i,qty:i,cost:i)->i{
+  ?on_hand+qty<=0{^0}
+  ^(on_hand*avg+qty*cost)//(on_hand+qty)
+}
+
++@stock_status(on_hand:i,reorder_point:i)->s{
+  ?on_hand<=0{^"out"}
+  ?on_hand<=reorder_point{^"low"}
+  ^"ok"
+}
+
++@suggested_qty(on_hand:i,reorder_point:i,reorder_qty:i)->i{
+  ?on_hand>reorder_point{^0}
+  need=reorder_qty-on_hand
+  ?need<0{^0}
+  ^need
+}

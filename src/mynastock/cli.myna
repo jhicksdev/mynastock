@@ -1,0 +1,20 @@
+@target(py)
+<sys
+<.version:{NAME,VERSION}
+
+@usage{
+  p(`{NAME} {VERSION}`)
+  p("usage: mynastock [version|selftest]")
+}
+
+@main{
+  args=sys.argv[1:]
+  ?#args==0{usage()}
+  :{
+    ??args[0]{
+      "version"=>{p(VERSION)}
+      "selftest"=>{p("M0 scaffold: run `make check`")}
+      _=>{usage()}
+    }
+  }
+}

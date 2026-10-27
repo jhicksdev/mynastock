@@ -1,0 +1,10 @@
+# Tooling configuration only. Packaging is deferred to v1.1 (ADR-0007);
+# the runtime artifact is the stdlib-only .pyz built by `make build`.
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+# Generated Python is machine output: enforce syntax and undefined-name correctness,
+# not style.
+[tool.ruff.lint]
+select = ["E9", "F821", "F822", "F823"]

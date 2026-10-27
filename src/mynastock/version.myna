@@ -1,0 +1,4 @@
+@target(py)
+
+NAME="MynaStock"
+VERSION="0.1.0"
