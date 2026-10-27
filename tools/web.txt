@@ -1,0 +1,4 @@
+src/mynastock/web/localstorage_repo.myna
+src/mynastock/web/dom.myna
+src/mynastock/web/app.myna
+src/mynastock/web/entry.myna

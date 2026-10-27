@@ -61,6 +61,8 @@ jobs:
           node-version: "22"
       - run: pip install myna-lang==0.4.2
       - run: make test-js
+      - run: make demo-smoke
+      - run: make site
 
   check:
     if: always()

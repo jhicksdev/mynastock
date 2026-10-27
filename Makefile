@@ -6,19 +6,20 @@ BUILD ?= build
 
 .PHONY: check lint lint-py test-py test-js build-py js-portable run selftest serve zipapp zipapp-smoke clean
 
-check: lint test-py lint-py test-js selftest zipapp-smoke
+check: lint test-py lint-py test-js demo demo-smoke site selftest zipapp-smoke
 
 lint:
 	@bash tools/check_targets.sh
 	@bash tools/check_portable.sh
-	@python3 tools/check_imports.py
-	@python3 tools/check_collisions.py
+	@python3 tools/check_imports.py --extra tools/web.txt
+	@python3 tools/check_collisions.py --extra tools/web.txt
 
 build-py:
 	@rm -rf $(BUILD)/py
 	@mkdir -p $(BUILD)/py
 	@set -e; \
 	for f in $$(find src tests -name '*.myna' | sort); do \
+		if grep -q '^@target(js)$$' "$$f"; then continue; fi; \
 		case $$f in \
 			src/*) out="$(BUILD)/py/$${f#src/}" ;; \
 			tests/*) out="$(BUILD)/py/tests/$${f#tests/}" ;; \
@@ -40,6 +41,22 @@ js-portable:
 	@python3 tools/assemble.py $(BUILD)/js/portable.myna
 	@$(MYNA) compile -t js $(BUILD)/js/portable.myna -o $(BUILD)/js/portable.mjs
 	@$(NODE) --check $(BUILD)/js/portable.mjs
+
+demo:
+	@mkdir -p $(BUILD) site/demo
+	@python3 tools/assemble.py --extra tools/web.txt $(BUILD)/demo.myna
+	@$(MYNA) compile -t js $(BUILD)/demo.myna -o $(BUILD)/demo.mjs
+	@$(NODE) --check $(BUILD)/demo.mjs
+	@cp $(BUILD)/demo.mjs site/demo/app.js
+	@cp web/styles.css site/demo/styles.css
+	@cp web/index.html site/demo/index.html
+
+demo-smoke: demo
+	@$(NODE) --test tests/js/demo-smoke.mjs
+
+site: demo
+	@python3 tools/build_site.py
+	@python3 tools/audit_site.py
 
 test-js: js-portable
 	@$(NODE) --test tests/js/*.test.mjs

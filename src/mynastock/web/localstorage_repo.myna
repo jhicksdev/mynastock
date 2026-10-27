@@ -1,0 +1,118 @@
+@target(js)
+<..core:{Product,Location,StockLevel,Movement,Operation,Result,lookup}
+<..adapters.memory:{MemoryRepo}
+
+KEY="mynastock:v1"
+
+@_hydrate_product(row:{s:A})->Product{
+  ^Product(row$id,row$sku,row$name,row$uom,row$unit_cost_cents,row$reorder_point,row$reorder_qty,row$active,row$version,row$created_at,row$updated_at)
+}
+
+@_hydrate_location(row:{s:A})->Location{
+  ^Location(row$id,row$code,row$name,row$kind,row$active)
+}
+
+@_hydrate_level(row:{s:A})->StockLevel{
+  ^StockLevel(row$product_id,row$location_id,row$on_hand,row$avg_cost_cents,row$version,row$updated_at)
+}
+
+@_hydrate_movement(row:{s:A})->Movement{
+  ^Movement(row$id,row$operation_id,row$type,row$product_id,row$location_id,row$qty_delta,row$unit_cost_cents,row$transfer_id,row$reason,row$actor,row$occurred_at)
+}
+
+@_hydrate_operation(row:{s:A})->Operation{
+  ^Operation(row$id,row$idempotency_key,row$request_fingerprint,row$response_json,row$created_at)
+}
+
+@_operation_dict(op:Operation)->{s:A}{
+  ^ {id:op.id,idempotency_key:op.idempotency_key,request_fingerprint:op.request_fingerprint,response_json:op.response_json,created_at:op.created_at}
+}
+
+# Persists the memory repository as one JSON document. apply() is a single
+# setItem, mirroring the server's one-transaction boundary.
+$LocalRepo<MemoryRepo{
+  @init{
+    ..init()
+    .load()
+  }
+
+  @load{
+    raw=window.localStorage.getItem(KEY)
+    ?raw===N{^N}
+    data=N
+    !{
+      data=@j(raw)
+    }!!e{
+      ^N
+    }
+    ?data===N{^N}
+    ?lookup(data,"schema")!=1{^N}
+
+    %row<-data$products{
+      .products[row$id]=_hydrate_product(row)
+      .product_ids.append(row$id)
+      .skus[row$sku]=row$id
+    }
+    %row<-data$locations{
+      .locations[row$id]=_hydrate_location(row)
+      .location_ids.append(row$id)
+      .codes[row$code]=row$id
+    }
+    %row<-data$levels{
+      key=row$product_id+"|"+row$location_id
+      .levels[key]=_hydrate_level(row)
+      .level_keys.append(key)
+    }
+    %row<-data$movements{
+      .movement_list.append(_hydrate_movement(row))
+    }
+    %row<-data$operations{
+      .operations[row$idempotency_key]=_hydrate_operation(row)
+      .operation_keys.append(row$idempotency_key)
+    }
+  }
+
+  @save->b{
+    data={}
+    data["schema"]=1
+    data["products"]=[.products[id].to_dict()|id<-.product_ids]
+    data["locations"]=[.locations[id].to_dict()|id<-.location_ids]
+    data["levels"]=[.levels[key].to_dict()|key<-.level_keys]
+    data["movements"]=[movement.to_dict()|movement<-.movement_list]
+    data["operations"]=[_operation_dict(.operations[key])|key<-.operation_keys]
+    !{
+      window.localStorage.setItem(KEY,@J(data))
+      ^T
+    }!!e{
+      ^F
+    }
+  }
+
+  @reset{
+    window.localStorage.removeItem(KEY)
+  }
+
+  @insert_product(product:Product)->Result{
+    result=..insert_product(product)
+    ?result.ok{.save()}
+    ^result
+  }
+
+  @update_product(product:Product,expected_version:i)->Result{
+    result=..update_product(product,expected_version)
+    ?result.ok{.save()}
+    ^result
+  }
+
+  @insert_location(location:Location)->Result{
+    result=..insert_location(location)
+    ?result.ok{.save()}
+    ^result
+  }
+
+  @apply(op:Operation,ms:[Movement],levels:[StockLevel])->Result{
+    result=..apply(op,ms,levels)
+    ?result.ok{.save()}
+    ^result
+  }
+}

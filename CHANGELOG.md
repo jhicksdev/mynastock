@@ -47,6 +47,19 @@ All notable changes to this project are documented here. The format follows
 - `check_collisions.py`: rejects locals that shadow module-level names, a JS-only scoping
   bug found by the parity suite.
 
+- M3 browser demo assembled from the real kernel: `LocalRepo` on `localStorage`, hash
+  routing, six views, movement/product forms, one-click reorder receipts, and a seeded
+  catalogue.
+- `tools/assemble.py --extra` and `tools/web.txt` for the web manifest; duplicate-name
+  protection and HTML-safe assembly.
+- Static site: landing page, demo shell, generated source viewer (Myna/Python/JS plus
+  token stats), `404.html`, and an asset audit.
+- `pages.yml` deploys `site/` through GitHub Actions; Pages is enabled for the repo.
+- `epoch_ms_to_iso` in the portable kernel, cross-checked against Python `datetime`.
+- `demo-smoke`: boots the bundle under a DOM stub, renders every route, posts a receipt,
+  and verifies persistence.
+- ADR-0005 and `docs/demo.md` with the manual QA checklist.
+
 ### Changed
 
 - Pinned `myna-lang==0.4.2`. Generated Python and JavaScript are byte-identical to the

@@ -18,6 +18,7 @@ $MemoryRepo<Repo{
     .level_keys=[]
     .movement_list=[]
     .operations={}
+    .operation_keys=[]
   }
 
   @product_by_sku(sku:s)->Product?{
@@ -85,6 +86,7 @@ $MemoryRepo<Repo{
       ?current!==N&&current.version!=level.version-1{^fail("version.conflict","Stock level changed while planning; retry","version")}
     }
     .operations[key]=op
+    .operation_keys.append(key)
     %m<-ms{.movement_list.append(m)}
     %level<-levels{
       lkey=level.product_id+"|"+level.location_id

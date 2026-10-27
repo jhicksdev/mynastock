@@ -18,8 +18,15 @@ make test-js      # assemble the portable modules, compile to ES, run node --tes
 make selftest     # the full request pipeline, in memory
 make serve        # SQLite at build/mynastock.db on 127.0.0.1:8080
 make zipapp-smoke # python -I build/mynastock.pyz --selftest
+make demo         # assemble + compile the browser bundle
+make demo-smoke   # boot the bundle against a DOM stub and exercise every route
+make site         # landing page, demo, source viewer, asset audit
 make clean
 ```
+
+The browser demo adds `tools/web.txt` to the portable manifest. Imports must start at
+column 0: the assembler strips them by that rule, and HTML inside template strings usually
+starts with `<` after indentation. JavaScript-only modules are skipped by `build-py`.
 
 `make test-js` runs `tools/assemble.py`, which concatenates the modules in
 `tools/portable.txt` into one JS-compilable file. Add a new portable module to the end of

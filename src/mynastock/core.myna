@@ -254,3 +254,35 @@ MAX_CODE=40
   ?need<0{^0}
   ^need
 }
+
+# ---------------------------------------------------------------------------
+# Time
+# ---------------------------------------------------------------------------
+
++@pad2(value:i)->s{
+  ?value<10{^`0{value}`}
+  ^@str(value)
+}
+
+# Epoch milliseconds to a UTC ISO-8601 timestamp (seconds precision).
+# Hinnant's civil-from-days with integer arithmetic; // is floored on both targets.
++@epoch_ms_to_iso(ms:i)->s{
+  days=ms//86400000
+  rest=ms%86400000
+  hours=rest//3600000
+  minutes=(rest%3600000)//60000
+  seconds=(rest%60000)//1000
+
+  z=days+719468
+  era=z//146097
+  doe=z-era*146097
+  yoe=(doe-doe//1460+doe//36524-doe//146096)//365
+  year=yoe+era*400
+  doy=doe-(365*yoe+yoe//4-yoe//100)
+  mp=(5*doy+2)//153
+  day=doy-(153*mp+2)//5+1
+  month=mp<10?mp+3:mp-9
+  ?month<=2{year+=1}
+
+  ^`{year}-{pad2(month)}-{pad2(day)}T{pad2(hours)}:{pad2(minutes)}:{pad2(seconds)}Z`
+}

@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MynaStock - inventory that speaks your language</title>
+  <meta name="description" content="An open-source inventory management system written in Myna: one portable kernel, a zero-dependency server, and a browser demo compiled from the same source.">
+  <meta name="theme-color" content="#0E3B43">
+  <link rel="stylesheet" href="./assets/landing.css">
+</head>
+<body>
+  <header class="site-header">
+    <a class="brand" href="./">Myna<span>Stock</span></a>
+    <nav>
+      <a href="./demo/">Live demo</a>
+      <a href="./source.html">Source</a>
+      <a href="https://github.com/jhicksdev/mynastock">GitHub</a>
+    </nav>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div class="hero-copy">
+        <p class="eyebrow">Myna &middot; Python 3.12 &middot; ES2024</p>
+        <h1>Inventory that speaks your language.</h1>
+        <p class="lede">MynaStock is a real inventory system written in Myna, an ultra-dense language that transpiles 1:1 to Python and JavaScript. One portable kernel powers the server, the tests, and the browser demo.</p>
+        <p class="cta">
+          <a class="button" href="./demo/">Open the live demo</a>
+          <a class="button ghost" href="./source.html">Read the source</a>
+        </p>
+        <ul class="facts">
+          <li><strong>0</strong> runtime dependencies</li>
+          <li><strong>68</strong> Python tests</li>
+          <li><strong>22&nbsp;KB</strong> zero-install server</li>
+          <li><strong>MIT</strong> licensed</li>
+        </ul>
+      </div>
+      <div class="hero-visual" aria-hidden="true">
+        <div class="mock">
+          <div class="mock-head">
+            <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+            <span class="mock-title">stock / WH1</span>
+          </div>
+          <div class="mock-row head"><span>SKU</span><span>On hand</span><span>Status</span></div>
+          <div class="mock-row"><span>WID-001</span><span class="num">30</span><span><em class="chip ok">ok</em></span></div>
+          <div class="mock-row"><span>GAD-002</span><span class="num">2</span><span><em class="chip low">low</em></span></div>
+          <div class="mock-row"><span>LMP-007</span><span class="num">1</span><span><em class="chip low">low</em></span></div>
+          <div class="mock-row"><span>CHR-008</span><span class="num">0</span><span><em class="chip out">out</em></span></div>
+          <div class="mock-note">receipts blend average cost &middot; transfers write two legs</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="features">
+      <article>
+        <h2>One kernel, three hosts</h2>
+        <p>The ledger rules, router, handlers, and invariants are import-free shared code. The same files run under the stdlib server, the ASGI adapter, and the browser demo.</p>
+      </article>
+      <article>
+        <h2>A ledger, not a spreadsheet</h2>
+        <p>Movements are append-only. Balances are a materialized fold updated in the same transaction, with idempotent posting and optimistic version checks.</p>
+      </article>
+      <article>
+        <h2>Zero-install delivery</h2>
+        <p><code>myna bundle --zipapp</code> produces a 22&nbsp;KB archive that runs on a clean Python. No pip, no venv, no services.</p>
+      </article>
+    </section>
+
+    <section class="code-card">
+      <div>
+        <p class="eyebrow">The language</p>
+        <h2>Dense source. Ordinary Python.</h2>
+        <p>Myna is a surface syntax over Python semantics. This is a real function from the ledger:</p>
+        <p class="link-row"><a href="./source.html">See the transpiled output</a></p>
+      </div>
+      <pre><code>+@plan_issue(level:StockLevel?,pid:s,lid:s,qty:i,now:s)-&gt;Result{
+  e=check_qty(qty)
+  ?e!==N{^Result(F,N,e)}
+  have=on_hand_of(level)
+  ?level===N||have&lt;qty{
+    ^fail("stock.insufficient","Not enough stock", "qty",{available:have})
+  }
+  ^ok(Plan([Leg(lid,-qty,avg_of(level))],
+     [next_level(level,pid,lid,have-qty,avg_of(level),now)]))
+}</code></pre>
+    </section>
+
+    <section class="closing">
+      <h2>Try it without a backend</h2>
+      <p>The demo seeds a catalogue, posts movements through the real request pipeline, and keeps everything in your browser. Reset it any time.</p>
+      <p><a class="button" href="./demo/">Launch MynaStock</a></p>
+    </section>
+  </main>
+
+  <footer>
+    <p>Built with <a href="https://github.com/jhicksdev/myna">Myna</a>. MIT licensed. Source on <a href="https://github.com/jhicksdev/mynastock">GitHub</a>.</p>
+  </footer>
+</body>
+</html>

@@ -27,4 +27,12 @@ if ! grep -Eq '^js *: *supported' <<<"$report"; then
   status=1
 fi
 
+python3 tools/assemble.py --extra tools/web.txt build/demo.myna >/dev/null
+web_report="$(myna targets build/demo.myna)"
+if ! grep -Eq '^js *: *supported' <<<"$web_report"; then
+  echo "targets: assembled demo module does not generate for js"
+  echo "$web_report"
+  status=1
+fi
+
 exit "$status"

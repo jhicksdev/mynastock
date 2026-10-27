@@ -1,0 +1,60 @@
+@target(js)
+<..core:{format_cents}
+
++@esc(text:s)->s{
+  out=""
+  %i<-.. #text{
+    c=text[i]
+    ?c=="&"{out+="&amp;"}
+    :?c=="<"{out+="&lt;"}
+    :?c==">"{out+="&gt;"}
+    :?c=="\""{out+="&quot;"}
+    :?c=="'"{out+="&#39;"}
+    :{out+=c}
+  }
+  ^out
+}
+
++@usd(cents:i)->s{
+  ^"$"+format_cents(cents)
+}
+
++@clear_toast{
+  node=document.getElementById("toast")
+  ?node!==N{node.innerHTML=""}
+}
+
++@toast(message:s,kind:s="info"){
+  node=document.getElementById("toast")
+  ?node===N{^}
+  node.innerHTML=`<div class="toast {kind}">{esc(message)}</div>`
+  window.setTimeout(clear_toast,3600)
+}
+
++@nav_html(active:s)->s{
+  items=[["","Overview"],["stock","Stock"],["movements","Movements"],["products","Products"],["reorder","Reorder"],["behind","Behind"]]
+  out=""
+  %item<-items{
+    href=#item[0]==0?"#/":`#/{item[0]}`
+    ?item[0]==active{
+      out+=`<a href="{href}" class="active">{item[1]}</a>`
+    }:{
+      out+=`<a href="{href}">{item[1]}</a>`
+    }
+  }
+  ^out
+}
+
++@status_chip(status:s)->s{
+  ?status=="ok"{^`<span class="chip ok">ok</span>`}
+  ?status=="low"{^`<span class="chip low">low</span>`}
+  ^`<span class="chip out">out</span>`
+}
+
++@card(label:s,value:s,hint:s)->s{
+  ^`<div class="card"><p class="label">{esc(label)}</p><p class="value">{value}</p><p class="hint">{esc(hint)}</p></div>`
+}
+
++@empty(message:s)->s{
+  ^`<div class="empty">{esc(message)}</div>`
+}

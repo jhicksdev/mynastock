@@ -1,0 +1,3 @@
+@target(js)
+# Assembled last: the browser entry point.
+boot()

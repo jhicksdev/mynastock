@@ -8,9 +8,10 @@
 
 MynaStock is an inventory management system written in [Myna](https://github.com/jhicksdev/myna), an ultra-dense language that transpiles 1:1 to Python 3.12 and to a portable subset of JavaScript. One portable kernel powers a zero-dependency HTTP server today, with an ASGI deployment and a static browser demo compiled from the same source on the roadmap.
 
-> **Status: M2 (server).** The catalogue, append-only ledger, idempotent posting, memory
-> and SQLite repositories, portable HTTP pipeline, stdlib adapter, and a zero-install
-> `.pyz` are implemented. The browser demo and documentation site land in M3-M4.
+> **Status: M3 (demo).** The catalogue, ledger, idempotent posting, repositories,
+> portable HTTP pipeline, stdlib server, zero-install `.pyz`, and the browser demo are
+> implemented. **Live demo:** <https://jhicksdev.github.io/mynastock/demo/>.
+> The ASGI adapter, generated OpenAPI, and documentation site land in M4.
 
 ## Quickstart
 
@@ -20,12 +21,20 @@ Requirements: `myna-lang==0.4.2`, Python 3.12+, Node 22+, and `uv` (only for the
 git clone https://github.com/jhicksdev/mynastock.git
 cd mynastock
 
-make check                          # gates, 68 Python tests, JS parity, zipapp smoke
+make check                          # gates, 68 tests, JS parity, demo, site, zipapp
 make serve                          # SQLite at build/mynastock.db, http://127.0.0.1:8080
 make selftest                       # the whole pipeline, in memory, no socket
+make site                           # landing page + browser demo + source viewer
 
 curl -s localhost:8080/api/v1/health
 python3 -I build/mynastock.pyz --selftest   # zero installed dependencies
+```
+
+The static demo is built from the same kernel as the server:
+
+```bash
+make demo                           # assemble + compile build/demo.mjs
+make site                           # writes site/ (open with: python3 -m http.server -d site)
 ```
 
 Seed a demo catalogue, then explore:
@@ -43,6 +52,8 @@ curl -s 'localhost:8080/api/v1/stock?below_reorder=true'
 | `test-py` | 68 tests: kernel, ledger, repositories, router, handlers, stdlib API |
 | `lint-py` | generated Python has no syntax or undefined-name errors |
 | `test-js` | the same scenarios under Node against the assembled ES module |
+| `demo-smoke` | the browser bundle boots, renders every route, and writes through the pipeline |
+| `site` | the landing page, demo, and source viewer build; every local asset resolves |
 | `selftest` | the full request pipeline runs in memory |
 | `zipapp-smoke` | `python -I build/mynastock.pyz --selftest` with no installed packages |
 
@@ -124,6 +135,9 @@ evidence behind each rule.
   PATCH merge semantics.
 - **Delivery** — `myna bundle --zipapp` produces a 22 KB `mynastock.pyz` that runs on a
   clean Python with no third-party packages.
+- **Browser demo** — the same kernel and `dispatch` pipeline compiled to one ES module,
+  with a `localStorage` repository, seeded catalogue, hash routing, and a source viewer.
+  No backend, no framework, no CDN.
 
 ## Repository layout
 
@@ -137,9 +151,12 @@ src/mynastock/
   db/                  migrations.myna, seed.myna
   cli.myna, main.myna  entry points (zipapp is bundled from cli.myna)
   selftest.myna        in-memory end-to-end check
+  web/                 browser repository, DOM helpers, views, entry point
+web/                   static shells and styles for the landing page and demo
 tests/                 unittest sources (compiled to build/py) + Node parity suite
-tools/                 portability gates, import/collision checks, JS assembler
+tools/                 portability gates, import/collision checks, JS assembler, site build
 docs/                  API contract and ADRs
+site/                  generated Pages artifact (gitignored)
 build/                 generated Python, JavaScript, SQLite, and the .pyz (gitignored)
 ```
 
@@ -152,9 +169,8 @@ Tests are compiled before they run, so they import the installed-shaped package
 - **M0** — scaffold, portability gates, parity harness. Done.
 - **M1** — ledger, moving average, idempotency, memory + SQLite repositories. Done.
 - **M2** — portable HTTP pipeline, stdlib adapter, CLI, zero-install `.pyz`. Done.
-- **M3** — browser demo assembled from the same kernel, GitHub Pages, source viewer,
-  Starlette adapter.
-- **M4** — generated OpenAPI, documentation site, v1.0.0.
+- **M3** — browser demo assembled from the same kernel, GitHub Pages, source viewer. Done.
+- **M4** — ASGI adapter with async routes, generated OpenAPI, documentation site, v1.0.0.
 
 Out of scope for v1: authentication, purchase orders, reservations, FIFO costing,
 multi-currency. Those are documented as intentional boundaries rather than missing

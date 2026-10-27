@@ -1,0 +1,464 @@
+@target(js)
+<..core:{lookup,is_digits,parse_cents,epoch_ms_to_iso}
+<..ids:{IdGen,new_seq_gen}
+<..http.request:{Request,Response}
+<..http.handlers:{dispatch}
+<..http.query:{parse_query}
+<..db.seed:{seed_demo}
+<.localstorage_repo:{LocalRepo}
+<.dom:{esc,usd,toast,nav_html,status_chip,card,empty}
+
+$WebIds<IdGen{
+  @init{..init()}
+  @next->s{^crypto.randomUUID()}
+}
+
+REPO=N
+IDS=WebIds()
+
++@now->s{
+  ^epoch_ms_to_iso(Date.now())
+}
+
++@api(method:s,path:s,body:A=N,headers:{s:s}?=N,query:{s:s}?=N)->Response{
+  merged={"content-type":"application/json"}
+  ?headers!==N{
+    %key<-headers{merged[key]=headers[key]}
+  }
+  text=""
+  ?body!==N{text=@J(body)}
+  params={}
+  ?query!==N{params=query}
+  ^dispatch(Request(method,path,params,merged,text),REPO,now(),IDS)
+}
+
++@api_get(path:s,query:{s:s})->Response{
+  ^api("GET",path,N,N,query)
+}
+
++@handle(response:Response,success_message:s){
+  ?response.status>=200&&response.status<300{
+    toast(success_message,"ok")
+    ^
+  }
+  data=N
+  !{
+    data=@j(response.body)
+  }!!e{
+    data=N
+  }
+  message="Request failed"
+  ?data!==N{
+    detail=lookup(data,"detail")
+    ?detail!==N{message=detail}
+  }
+  toast(message,"error")
+}
+
++@post_move(kind:s,sku:s,location:s,to:s,qty:i,cost:i?,reason:s)->Response{
+  body={type:kind,sku:sku,location:location,qty:qty}
+  ?#to>0{body["to_location"]=to}
+  ?cost!==N{body["unit_cost_cents"]=cost}
+  ?#reason>0{body["reason"]=reason}
+  headers={"content-type":"application/json","idempotency-key":IDS.next()}
+  ^dispatch(Request("POST","/api/v1/movements",{},headers,@J(body)),REPO,now(),IDS)
+}
+
++@current_route->(s,{s:s}){
+  text=window.location.hash
+  ?#text>0&&text[0]=="#"{text=text[1:]}
+  ?#text>0&&text[0]=="/"{text=text[1:]}
+  pos=-1
+  %i<-.. #text{
+    ?pos<0&&text[i]=="?"{pos=i}
+  }
+  path=text
+  query={}
+  ?pos>=0{
+    path=text[0:pos]
+    query=parse_query(text[pos+1:])
+  }
+  ^path,query
+}
+
++@render{
+  route,query=current_route()
+  content=""
+  active=route
+  ??route{
+    ""=>{content=view_overview()}
+    "stock"=>{content=view_stock(query)}
+    "movements"=>{content=view_movements()}
+    "products"=>{content=view_products()}
+    "reorder"=>{content=view_reorder()}
+    "behind"=>{content=view_behind()}
+    _=>{
+      active=""
+      content=`<section class="panel"><h1>Page not found</h1><p class="muted">Try the navigation above.</p></section>`
+    }
+  }
+  document.getElementById("nav").innerHTML=nav_html(active)
+  document.getElementById("app").innerHTML=content
+}
+
++@_product_options(items:[{s:A}],selected:s)->s{
+  out=""
+  %item<-items{
+    sel=""
+    ?item$sku==selected{sel=" selected"}
+    out+=`<option value="{esc(item$sku)}"{sel}>{esc(item$sku)} - {esc(item$name)}</option>`
+  }
+  ^out
+}
+
++@_location_options(items:[{s:A}],selected:s)->s{
+  out=""
+  %item<-items{
+    sel=""
+    ?item$code==selected{sel=" selected"}
+    out+=`<option value="{esc(item$code)}"{sel}>{esc(item$code)} - {esc(item$name)}</option>`
+  }
+  ^out
+}
+
++@view_overview->s{
+  stock=@j(api_get("/api/v1/stock",{}).body)
+  items=stock$items
+  units=0
+  value=0
+  low=0
+  %row<-items{
+    units+=row$on_hand
+    value+=row$value_cents
+    ?row$status!="ok"{low+=1}
+  }
+
+  report=@j(api_get("/api/v1/reports/valuation",{group_by:"location"}).body)
+  bars=""
+  total=report$total_cents
+  %item<-report$items{
+    pct=0
+    ?total>0{pct=item$value_cents*100//total}
+    bars+=`<div class="bar-row"><span>{esc(item$key)}</span><div class="bar"><i style="width:{pct}%"></i></div><span class="num">{usd(item$value_cents)}</span></div>`
+  }
+  ?#bars==0{bars=empty("No stock yet.")}
+
+  recent=@j(api_get("/api/v1/movements",{limit:"8"}).body)$items
+  rows=""
+  %movement<-recent{
+    rows+=`<tr>
+      <td class="mono">{esc(movement$occurred_at)}</td>
+      <td>{esc(movement$type)}</td>
+      <td><code>{esc(movement$sku)}</code></td>
+      <td>{esc(movement$location)}</td>
+      <td class="num">{movement$qty_delta}</td>
+    </tr>`
+  }
+  ?#rows==0{rows=`<tr><td colspan="5" class="muted">No movements yet.</td></tr>`}
+
+  ^`<section class="hero-row">
+    <div>
+      <p class="eyebrow">Live demo</p>
+      <h1>Inventory, straight from the kernel.</h1>
+      <p class="lede">This page runs the real MynaStock request pipeline, compiled from the same Myna source as the server. Everything you change lives in this browser.</p>
+      <p><a class="button" href="#/stock">Move stock</a> <a class="button ghost" href="#/reorder">Review reorder list</a></p>
+    </div>
+    <div class="kpis">
+      {card("On hand",@str(units),"units across all locations")}
+      {card("Stock value",usd(value),"at moving average cost")}
+      {card("Low stock",@str(low),"at or below reorder point")}
+    </div>
+  </section>
+  <section class="panel">
+    <h2>Value by location</h2>
+    {bars}
+  </section>
+  <section class="panel">
+    <h2>Recent movements</h2>
+    <div class="table-wrap"><table>
+      <thead><tr><th>When</th><th>Type</th><th>SKU</th><th>Location</th><th class="num">Qty</th></tr></thead>
+      <tbody>{rows}</tbody>
+    </table></div>
+  </section>`
+}
+
++@view_stock(query:{s:s})->s{
+  q=lookup(query,"q")??""
+  low=lookup(query,"low")??""
+  selected_sku=lookup(query,"sku")??""
+  selected_location=lookup(query,"location")??""
+
+  params={}
+  ?#q>0{params["q"]=q}
+  ?low=="1"{params["below_reorder"]="true"}
+  stock=@j(api_get("/api/v1/stock",params).body)
+  products=@j(api_get("/api/v1/products",{}).body)$items
+  locations=@j(api_get("/api/v1/locations",{}).body)$items
+
+  rows=""
+  %item<-stock$items{
+    rows+=`<tr>
+      <td><code>{esc(item$sku)}</code><div class="muted">{esc(item$product)}</div></td>
+      <td>{esc(item$location)}</td>
+      <td class="num">{item$on_hand}</td>
+      <td class="num">{usd(item$avg_cost_cents)}</td>
+      <td class="num">{usd(item$value_cents)}</td>
+      <td>{status_chip(item$status)}</td>
+      <td class="actions"><button class="link" data-action="prefill" data-sku="{esc(item$sku)}" data-location="{esc(item$location)}">Move</button></td>
+    </tr>`
+  }
+  ?#rows==0{rows=`<tr><td colspan="7" class="muted">No stock matches this filter.</td></tr>`}
+
+  checked=""
+  ?low=="1"{checked="checked"}
+
+  form=`<div class="empty">Create a product and a location first; the movement form needs both.</div>`
+  ?#products>0&&#locations>0{
+    form=`<form class="panel form-grid" data-form="move">
+      <h2>Post a movement</h2>
+      <label>Type
+        <select id="move-type">
+          <option value="receive">receive</option>
+          <option value="issue">issue</option>
+          <option value="transfer">transfer</option>
+          <option value="adjust">adjust (signed delta)</option>
+        </select>
+      </label>
+      <label>Product<select id="move-sku">{_product_options(products,selected_sku)}</select></label>
+      <label>Location<select id="move-location">{_location_options(locations,selected_location)}</select></label>
+      <label>Destination (transfer)<select id="move-to"><option value="">-</option>{_location_options(locations,"")}</select></label>
+      <label>Quantity<input id="move-qty" inputmode="numeric" placeholder="10" required></label>
+      <label>Unit cost (optional)<input id="move-cost" inputmode="decimal" placeholder="2.50"></label>
+      <label>Reason (adjust)<input id="move-reason" placeholder="cycle count"></label>
+      <div class="form-actions"><button class="button" type="submit">Post movement</button></div>
+      <p class="hint">Receipts blend the location's average cost. Transfers write two linked legs.</p>
+    </form>`
+  }
+
+  ^`<section class="panel">
+    <div class="panel-head">
+      <h1>Stock</h1>
+      <form class="filters" data-form="filter">
+        <input id="filter-q" placeholder="SKU or name" value="{esc(q)}">
+        <label class="check"><input type="checkbox" id="filter-low" {checked}> Low only</label>
+        <button class="button ghost" type="submit">Filter</button>
+      </form>
+    </div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Product</th><th>Location</th><th class="num">On hand</th><th class="num">Avg cost</th><th class="num">Value</th><th>Status</th><th></th></tr></thead>
+      <tbody>{rows}</tbody>
+    </table></div>
+  </section>
+  {form}`
+}
+
++@view_products->s{
+  products=@j(api_get("/api/v1/products",{}).body)$items
+  rows=""
+  %item<-products{
+    rows+=`<tr>
+      <td><code>{esc(item$sku)}</code></td>
+      <td>{esc(item$name)}</td>
+      <td>{esc(item$uom)}</td>
+      <td class="num">{usd(item$unit_cost_cents)}</td>
+      <td class="num">{item$reorder_point} / {item$reorder_qty}</td>
+      <td>{item$active?"active":"archived"}</td>
+      <td class="num">v{item$version}</td>
+    </tr>`
+  }
+  ?#rows==0{rows=`<tr><td colspan="7" class="muted">No products yet.</td></tr>`}
+
+  ^`<section class="panel">
+    <h1>Products</h1>
+    <div class="table-wrap"><table>
+      <thead><tr><th>SKU</th><th>Name</th><th>UOM</th><th class="num">Unit cost</th><th class="num">Reorder pt / qty</th><th>State</th><th class="num">Version</th></tr></thead>
+      <tbody>{rows}</tbody>
+    </table></div>
+  </section>
+  <form class="panel form-grid" data-form="product">
+    <h2>Add a product</h2>
+    <label>SKU<input id="p-sku" placeholder="WID-009" required></label>
+    <label>Name<input id="p-name" placeholder="Widget" required></label>
+    <label>Unit cost<input id="p-cost" inputmode="decimal" placeholder="2.50"></label>
+    <label>Reorder point<input id="p-point" inputmode="numeric" placeholder="5"></label>
+    <label>Reorder quantity<input id="p-reorder" inputmode="numeric" placeholder="20"></label>
+    <div class="form-actions"><button class="button" type="submit">Create product</button></div>
+    <p class="hint">SKUs are uppercase: A-Z, 0-9, hyphen, underscore.</p>
+  </form>`
+}
+
++@view_movements->s{
+  items=@j(api_get("/api/v1/movements",{limit:"100"}).body)$items
+  rows=""
+  %movement<-items{
+    note=movement$reason??""
+    ?note==""{note=movement$transfer_id??""}
+    rows+=`<tr>
+      <td class="mono">{esc(movement$occurred_at)}</td>
+      <td>{esc(movement$type)}</td>
+      <td><code>{esc(movement$sku)}</code></td>
+      <td>{esc(movement$location)}</td>
+      <td class="num">{movement$qty_delta}</td>
+      <td class="num">{usd(movement$unit_cost_cents)}</td>
+      <td class="muted">{esc(note)}</td>
+    </tr>`
+  }
+  ?#rows==0{rows=`<tr><td colspan="7" class="muted">No movements yet.</td></tr>`}
+  ^`<section class="panel">
+    <h1>Movements</h1>
+    <p class="muted">Append-only ledger, newest first. Transfers appear as two linked legs.</p>
+    <div class="table-wrap"><table>
+      <thead><tr><th>When</th><th>Type</th><th>SKU</th><th>Location</th><th class="num">Qty</th><th class="num">Cost</th><th>Note</th></tr></thead>
+      <tbody>{rows}</tbody>
+    </table></div>
+  </section>`
+}
+
++@view_reorder->s{
+  items=@j(api_get("/api/v1/reports/reorder",{}).body)$items
+  rows=""
+  %item<-items{
+    rows+=`<tr>
+      <td><code>{esc(item$sku)}</code><div class="muted">{esc(item$product)}</div></td>
+      <td>{esc(item$location)}</td>
+      <td class="num">{item$on_hand}</td>
+      <td class="num">{item$reorder_point}</td>
+      <td class="num">{item$suggested_qty}</td>
+      <td><button class="link" data-action="receive-suggested" data-sku="{esc(item$sku)}" data-location="{esc(item$location)}" data-qty="{item$suggested_qty}">Receive {item$suggested_qty}</button></td>
+    </tr>`
+  }
+  ?#rows==0{rows=`<tr><td colspan="6" class="muted">Nothing is below its reorder point.</td></tr>`}
+  ^`<section class="panel">
+    <h1>Reorder</h1>
+    <p class="muted">Suggested quantity is <code>reorder_qty - on_hand</code> once stock reaches the reorder point.</p>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Product</th><th>Location</th><th class="num">On hand</th><th class="num">Point</th><th class="num">Suggested</th><th></th></tr></thead>
+      <tbody>{rows}</tbody>
+    </table></div>
+  </section>`
+}
+
++@view_behind->s{
+  ^`<section class="panel prose">
+    <h1>Behind the demo</h1>
+    <p>This page is Myna compiled to one ES module. The ledger rules, request router, handlers, and in-memory repository are the same files that produce the Python server; only the storage adapter differs.</p>
+    <ul>
+      <li><strong>Storage:</strong> one JSON document in <code>localStorage</code>, written atomically per operation.</li>
+      <li><strong>Transport:</strong> the UI builds real <code>Request</code> objects and calls the same <code>dispatch</code> the HTTP server exposes.</li>
+      <li><strong>Reset:</strong> clearing browser data restores the seeded catalogue.</li>
+    </ul>
+    <p><a class="button ghost" href="../source.html">Open the source viewer</a></p>
+    <button class="link danger" data-action="reset">Reset demo data</button>
+    <p class="hint">Source: <a href="https://github.com/jhicksdev/mynastock">github.com/jhicksdev/mynastock</a></p>
+  </section>`
+}
+
++@on_click(event:A){
+  element=event.target.closest("[data-action]")
+  ?element===N{^}
+  action=element.getAttribute("data-action")
+  ??action{
+    "reset"=>{
+      REPO.reset()
+      window.location.reload()
+    }
+    "prefill"=>{
+      sku=element.getAttribute("data-sku")
+      location=element.getAttribute("data-location")
+      window.location.hash=`#/stock?sku={sku}&location={location}`
+    }
+    "receive-suggested"=>{
+      sku=element.getAttribute("data-sku")
+      location=element.getAttribute("data-location")
+      qty=@int(element.getAttribute("data-qty"))
+      response=post_move("receive",sku,location,"",qty,N,"")
+      handle(response,`Received {qty} x {sku}`)
+      render()
+    }
+    _=>{_}
+  }
+}
+
++@on_submit(event:A){
+  event.preventDefault()
+  form=event.target
+  kind=form.getAttribute("data-form")
+  ??kind{
+    "move"=>{
+      type=document.getElementById("move-type").value
+      sku=document.getElementById("move-sku").value
+      location=document.getElementById("move-location").value
+      destination=document.getElementById("move-to").value
+      qty_text=document.getElementById("move-qty").value
+      cost_text=document.getElementById("move-cost").value
+      reason_text=document.getElementById("move-reason").value
+
+      negative=F
+      digits=qty_text
+      ?type=="adjust"&&#qty_text>0&&qty_text[0]=="-"{digits=qty_text[1:];negative=T}
+      ?!is_digits(digits){toast("Quantity must be a whole number","error");^}
+      qty=@int(digits)
+      ?negative{qty=-qty}
+
+      cost=N
+      ?#cost_text>0{
+        parsed=parse_cents(cost_text)
+        ?parsed===N{toast("Cost must look like 12.34","error");^}
+        cost=parsed
+      }
+
+      response=post_move(type,sku,location,destination,qty,cost,reason_text)
+      handle(response,`Posted {type}`)
+      render()
+    }
+    "product"=>{
+      sku=document.getElementById("p-sku").value
+      name=document.getElementById("p-name").value
+      cost_text=document.getElementById("p-cost").value
+      point_text=document.getElementById("p-point").value
+      reorder_text=document.getElementById("p-reorder").value
+      cost=0
+      ?#cost_text>0{
+        parsed=parse_cents(cost_text)
+        ?parsed===N{toast("Cost must look like 12.34","error");^}
+        cost=parsed
+      }
+      point=0
+      ?#point_text>0{
+        ?!is_digits(point_text){toast("Reorder point must be a whole number","error");^}
+        point=@int(point_text)
+      }
+      reorder=0
+      ?#reorder_text>0{
+        ?!is_digits(reorder_text){toast("Reorder quantity must be a whole number","error");^}
+        reorder=@int(reorder_text)
+      }
+      response=api("POST","/api/v1/products",{sku:sku,name:name,unit_cost_cents:cost,reorder_point:point,reorder_qty:reorder},N,N)
+      handle(response,`Created {sku}`)
+      render()
+    }
+    "filter"=>{
+      q=document.getElementById("filter-q").value
+      low=document.getElementById("filter-low").checked
+      hash="#/stock"
+      separator="?"
+      ?#q>0{hash+=`{separator}q={q}`;separator="&"}
+      ?low{hash+=`{separator}low=1`}
+      window.location.hash=hash
+      render()
+    }
+    _=>{_}
+  }
+}
+
++@boot{
+  REPO=LocalRepo()
+  ?#REPO.list_products()==0{
+    seeded=seed_demo(REPO,now(),new_seq_gen("seed"))
+    ?!seeded.ok{toast(`Seed failed: {seeded.error.message}`,"error")}
+  }
+  document.body.addEventListener("click",on_click)
+  document.body.addEventListener("submit",on_submit)
+  window.addEventListener("hashchange",render)
+  render()
+}
