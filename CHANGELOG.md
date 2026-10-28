@@ -79,6 +79,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- Release checksums now reference the published asset name (`mynastock.pyz`), so
+  `sha256sum -c SHA256SUMS` works after download.
+
 - Verified the build against the pinned `myna-lang==0.4.1` (the previous local toolchain
   was 0.4.0): renamed `p` parameters that 0.4.1 rewrites to the print alias in JS, and
   moved the JS target gate to the assembled artifact because 0.4.1 rejects per-file
