@@ -121,4 +121,4 @@ Pitfalls discovered while building M1 (all verified, all now covered by tests):
 
 - Myna specification: <https://github.com/jhicksdev/myna/blob/main/SPEC.md>
 - Target contract: `DECISIONS.md` D-001 and D-002 in the Myna repository
-- Upstream gaps: `docs/upstream/` (added in M0.5)
+- Upstream gap reproducers are tracked outside this repository.

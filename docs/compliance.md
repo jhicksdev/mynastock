@@ -9,7 +9,7 @@ around.
 - `requirements-dev.txt`, CI, and the docs pin `myna-lang==0.4.2`.
 - `tests/spec`-style assertions live in the normal suites: time formatting, arithmetic,
   match arms, JSON, and byte/string behaviour.
-- Upgrading: run `make check`, regenerate `docs/openapi.json`, rebuild the site, read the
+- Upgrading: run `make check`, regenerate `docs/api/openapi.json`, rebuild the site, read the
   Myna changelog, and re-run the JS parity suite. 0.5.0 changes the default `@target` to
   Python-only, so every module must keep declaring its targets explicitly.
 

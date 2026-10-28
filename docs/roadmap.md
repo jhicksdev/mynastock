@@ -1,7 +1,7 @@
 # Roadmap
 
-MynaStock 1.0.0 is the milestone where the kernel, both server transports, the static
-demo, generated OpenAPI, and documentation are all verified together.
+MynaStock 1.0.0 shipped with the kernel, both server transports, the static demo,
+generated OpenAPI, and documentation verified together.
 
 ## Done
 

@@ -22,7 +22,7 @@ static browser demo.
 | Storage | SQLite (server) and `localStorage` (browser) behind one contract |
 | HTTP | portable router/handlers, problem+json, keyset pagination |
 | Transports | stdlib `http.server`, async ASGI, browser `dispatch` |
-| Delivery | 22 KB zero-install `.pyz`, static Pages site |
+| Delivery | 24 KB zero-install `.pyz`, static Pages site |
 
 ## Quick facts
 

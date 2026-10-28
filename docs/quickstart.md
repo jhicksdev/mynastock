@@ -10,8 +10,8 @@ make check
 ```
 
 `make check` runs the portability gates, 76 Python tests, generated-Python lint, OpenAPI
-drift, JS parity, the demo smoke test, the site audit, the in-memory selftest, and the
-zero-install zipapp smoke test.
+drift, JS parity, the demo smoke test, the strict docs build, the site audit, the in-memory
+selftest, and the zero-install zipapp smoke test.
 
 ## Server
 

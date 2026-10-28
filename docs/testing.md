@@ -36,12 +36,13 @@ Each is now covered by a gate (`check_collisions.py`), a naming rule, or a regre
 1. `lint` — target declarations, forbidden constructs, imports, name collisions.
 2. `test-py` — compile and run 76 tests.
 3. `lint-py` — ruff over generated Python (syntax and undefined names).
-4. `openapi-check` — `docs/openapi.json` matches the route table.
+4. `openapi-check` — `docs/api/openapi.json` matches the route table.
 5. `test-js` — Node parity over the assembled ES module.
 6. `demo` / `demo-smoke` — compile the web bundle and exercise every route.
-7. `site` — landing, docs, source viewer, asset audit.
-8. `selftest` — the pipeline in memory without a socket.
-9. `zipapp-smoke` — the bundled artifact under `python -I`.
+7. `docs` — strict MkDocs build.
+8. `site` — assemble landing, demo, docs, and source viewer; audit every asset.
+9. `selftest` — the pipeline in memory without a socket.
+10. `zipapp-smoke` — the bundled artifact under `python -I`.
 
 CI runs the same commands on Python 3.12 and 3.13, myna-lang 0.4.2, ruff, Node 22, and
 deploys the site through GitHub Pages.

@@ -43,7 +43,7 @@ reports, insufficient stock).
   dependencies. `check_imports.py` validates the edges; the assembler validates names.
 - All portable modules share one namespace in the JS artifact. Prefixing or renaming is
   required if two modules ever want the same top-level name.
-- The browser demo in M3 will compile the same assembled file; no second implementation.
+- The browser demo compiles the same assembled file; there is no second implementation.
 - The tool is debt by design. When upstream JS bundling lands, delete `assemble.py`,
   point `myna compile -t js` at the real entry, and keep the parity suite unchanged.
 

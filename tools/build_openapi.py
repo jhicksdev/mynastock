@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Write docs/openapi.json from the route table, or verify it is current."""
+"""Write docs/api/openapi.json from the route table, or verify it is current."""
 import argparse
 import json
 import sys
@@ -19,7 +19,7 @@ target = ROOT / "docs" / "api" / "openapi.json"
 
 if args.check:
     if not target.is_file() or target.read_text(encoding="utf-8") != text:
-        print("openapi: docs/openapi.json is stale; run `make openapi`", file=sys.stderr)
+        print("openapi: docs/api/openapi.json is stale; run `make openapi`", file=sys.stderr)
         raise SystemExit(1)
     print("openapi: current")
 else:

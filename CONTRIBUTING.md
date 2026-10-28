@@ -4,23 +4,27 @@
 
 - `myna-lang==0.4.2` (`pip install myna-lang==0.4.2`)
 - Python 3.12+
-- Node 22+ (for the JavaScript parity suite)
+- Node 22+ (for the JavaScript parity and demo smoke suites)
 - GNU Make
+- `uv` or installed `ruff` / `mkdocs-material` (the Makefile defaults to `uvx` for both)
 
 ## Everyday commands
 
 ```bash
-make check        # everything below: 65 Python tests, JS parity, zipapp smoke
+make check        # 76 tests, parity, demo, docs, site, zipapp smoke
 make lint         # target declarations, forbidden constructs, imports, name collisions
 make test-py      # compile to build/py and run unittest
 make lint-py      # ruff over the generated Python (syntax and undefined names only)
+make openapi-check # docs/api/openapi.json matches the route table
 make test-js      # assemble the portable modules, compile to ES, run node --test
 make selftest     # the full request pipeline, in memory
 make serve        # SQLite at build/mynastock.db on 127.0.0.1:8080
+make serve-asgi   # async ASGI via uvicorn on 127.0.0.1:8081
 make zipapp-smoke # python -I build/mynastock.pyz --selftest
 make demo         # assemble + compile the browser bundle
 make demo-smoke   # boot the bundle against a DOM stub and exercise every route
-make site         # landing page, demo, source viewer, asset audit
+make docs         # strict MkDocs build under build/docs
+make site         # landing, demo, docs, source viewer, asset audit
 make clean
 ```
 

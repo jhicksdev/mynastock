@@ -6,14 +6,14 @@
 
 ## Context
 
-The same request pipeline has to run under the zero-dependency stdlib server today, an
-ASGI adapter in M3, and the browser demo in M3. Framework-coupled handlers would force a
+The same request pipeline has to run under the zero-dependency stdlib server, an async
+ASGI adapter, and the browser demo. Framework-coupled handlers would force a
 second implementation, and the demo would drift from the server.
 
 FastAPI is a poor fit for Myna: its request models require bare class annotations, which
 are a parse error, and its validation lives in Pydantic rather than in the portable
-kernel. Starlette is viable for the ASGI adapter because it accepts a plain ASGI callable,
-but binding the handlers to it would still break the browser target.
+kernel. Starlette was considered for the ASGI adapter, but a raw ASGI callable needs no
+dependency and keeps the contract identical for uvicorn and the test harness.
 
 ## Decision
 
@@ -48,21 +48,21 @@ invalid input. Everything else uses `Result`.
 
 ## Consequences
 
-- `dispatch(Request) -> Response` is tested in memory, under the stdlib server, and (from
-  M3) in the browser. 65 Python tests and the Node parity suite cover the pipeline.
+- `dispatch(Request) -> Response` is tested in memory, under the stdlib server, and in
+  the browser. 76 Python tests and the Node parity suite cover the pipeline.
 - The stdlib server serializes requests with one lock. That is correct for the current
-  SQLite connection and irrelevant for a portfolio-scale demo; the ASGI adapter will use
-  a per-request connection or a worker pool.
+  SQLite connection and irrelevant at demo scale; a high-concurrency ASGI deployment would
+  use a per-request connection or a worker pool.
 - No percent-decoding means a search value containing `%` is literal. Acceptable for v1,
   documented, and replaceable inside `query.myna` when a portable decoder exists.
 - No auth, rate limiting, TLS, compression, or HTTP/2. Documented in `SECURITY.md`.
-- The handler table is the single source for routes; generated OpenAPI in M4 will read it
-  and a drift gate will keep `docs/api.md` honest.
+- The handler table is the single source for routes; generated OpenAPI reads it
+  and a drift gate keeps `docs/api/openapi.json` honest.
 
 ## Alternatives considered
 
-- **Starlette-first:** deferred to M3 because it would delay the zero-install artifact and
-  the browser parity proof.
+- **Starlette-first:** rejected; the raw ASGI callable adds no dependency and the same
+  contract is covered by direct tests and uvicorn.
 - **FastAPI:** rejected; Pydantic models cannot be expressed (bare annotations) and
   framework validation would split the rules across targets.
 - **One endpoint per movement type:** rejected; the transaction and idempotency path are

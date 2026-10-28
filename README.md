@@ -6,7 +6,7 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-yellow.svg)](LICENSE)
 [![Myna](https://img.shields.io/badge/myna--lang-0.4.2-informational)](https://pypi.org/project/myna-lang/)
 
-MynaStock is an inventory management system written in [Myna](https://github.com/jhicksdev/myna), an ultra-dense language that transpiles 1:1 to Python 3.12 and to a portable subset of JavaScript. One portable kernel powers a zero-dependency HTTP server today, with an ASGI deployment and a static browser demo compiled from the same source on the roadmap.
+MynaStock is an inventory management system written in [Myna](https://github.com/jhicksdev/myna), an ultra-dense language that transpiles 1:1 to Python 3.12 and to a portable subset of JavaScript. One portable kernel powers a zero-dependency HTTP server, an async ASGI deployment, and a static browser demo compiled from the same source.
 
 > **v1.0.0.** Catalogue, append-only ledger, idempotent posting, memory/SQLite
 > repositories, portable HTTP pipeline, stdlib and async ASGI servers, zero-install
@@ -16,16 +16,17 @@ MynaStock is an inventory management system written in [Myna](https://github.com
 
 ## Quickstart
 
-Requirements: `myna-lang==0.4.2`, Python 3.12+, Node 22+, and `uv` (only for the default `uvx ruff` runner; `RUFF=ruff` works too).
+Requirements: `myna-lang==0.4.2`, Python 3.12+, Node 22+, and `uv` for the default `uvx` runners (`RUFF=ruff` and `MKDOCS=mkdocs` work too).
 
 ```bash
 git clone https://github.com/jhicksdev/mynastock.git
 cd mynastock
 
-make check                          # gates, 76 tests, JS parity, demo, site, zipapp
+make check                          # gates, 76 tests, parity, demo, docs, site, zipapp
 make serve                          # SQLite at build/mynastock.db, http://127.0.0.1:8080
 make selftest                       # the whole pipeline, in memory, no socket
-make site                           # landing page + browser demo + source viewer
+make site                           # landing page + browser demo + docs + source viewer
+make serve-asgi                     # optional: uvicorn + async ASGI, port 8081
 
 curl -s localhost:8080/api/v1/health
 python3 -I build/mynastock.pyz --selftest   # zero installed dependencies
@@ -45,20 +46,22 @@ myna run src/mynastock/cli.myna seed --db build/mynastock.db
 curl -s 'localhost:8080/api/v1/stock?below_reorder=true'
 ```
 
-`make check` runs:
+`make check` runs (ASGI needs `uvicorn`, installed separately):
 
 | Target | What it proves |
 |---|---|
 | `lint` | target declarations, portable-import edges, forbidden constructs, no local/global name collisions |
-| `test-py` | 76 tests: kernel, ledger, repositories, router, handlers, stdlib API |
+| `test-py` | 76 tests: kernel, ledger, repositories, router, handlers, stdlib, ASGI, OpenAPI |
 | `lint-py` | generated Python has no syntax or undefined-name errors |
+| `openapi-check` | `docs/api/openapi.json` matches the live route table |
 | `test-js` | the same scenarios under Node against the assembled ES module |
 | `demo-smoke` | the browser bundle boots, renders every route, and writes through the pipeline |
-| `site` | the landing page, demo, and source viewer build; every local asset resolves |
+| `docs` | MkDocs builds strictly (architecture, API, testing, compliance, ADRs) |
+| `site` | landing, demo, docs, and source viewer build; every local asset resolves |
 | `selftest` | the full request pipeline runs in memory |
 | `zipapp-smoke` | `python -I build/mynastock.pyz --selftest` with no installed packages |
 
-`lint-py` uses `uvx ruff` by default; install ruff yourself and pass `RUFF=ruff` if you prefer.
+`lint-py` uses `uvx ruff` and `docs` uses `uvx --with mkdocs-material mkdocs` by default; pass `RUFF=ruff` / `MKDOCS=mkdocs` if you installed them yourself.
 
 ## API
 
@@ -90,7 +93,7 @@ same key with a different body is a `409`. See [`docs/api.md`](docs/api.md).
 ## How it is built
 
 ```
-adapters (stdlib http | Starlette M3 | localStorage M3)   @target(py) / @target(js)
+adapters (stdlib http | ASGI | localStorage)             @target(py) / @target(js)
         ↓ portable Request/Response
 http (router, handlers, presenters, pagination)           @target(py, js)
         ↓
@@ -101,8 +104,8 @@ core (money, ledger rules, invariants)                    @target(py, js)
 memory repo | SQLite repo | localStorage repo
 ```
 
-The same `dispatch(Request) -> Response` pipeline runs under the stdlib server, the future
-ASGI adapter, and the browser demo. The kernel imports only other portable modules; host
+The same `dispatch(Request) -> Response` pipeline runs under the stdlib server, the
+async ASGI adapter, and the browser demo. The kernel imports only other portable modules; host
 concerns (sockets, SQL, storage, clocks, IDs) live in adapters.
 
 ### Portable-zone rules
@@ -121,7 +124,7 @@ concerns (sockets, SQL, storage, clocks, IDs) live in adapters.
 See [`docs/adr/0001-portable-core.md`](docs/adr/0001-portable-core.md) for the verified
 evidence behind each rule.
 
-## What works now
+## What works
 
 - **Catalogue** — uppercase SKUs and location codes, explicit validation, optimistic
   `version` updates with `If-Match`.
@@ -134,11 +137,17 @@ evidence behind each rule.
   with optimistic version checks so concurrent planners cannot double-post.
 - **HTTP** — portable router and handlers, RFC 9457 problem responses, keyset pagination,
   PATCH merge semantics.
-- **Delivery** — `myna bundle --zipapp` produces a 22 KB `mynastock.pyz` that runs on a
+- **Transports** — the stdlib server and an async ASGI callable (`~@asgi_app`, with
+  `asyncio.to_thread` for SQLite) serve the same contract.
+- **OpenAPI** — a 3.1 document generated from the route table, with a drift gate, a CLI
+  command, and a downloadable schema.
+- **Delivery** — `myna bundle --zipapp` produces a 24 KB `mynastock.pyz` that runs on a
   clean Python with no third-party packages.
 - **Browser demo** — the same kernel and `dispatch` pipeline compiled to one ES module,
   with a `localStorage` repository, seeded catalogue, hash routing, and a source viewer.
   No backend, no framework, no CDN.
+- **Documentation** — architecture, quickstart, API, testing, Myna compliance, and five
+  ADRs, built with MkDocs and deployed with the demo.
 
 ## Repository layout
 
@@ -148,7 +157,7 @@ src/mynastock/
   ports.myna           repository contract
   app/service.myna     use cases, idempotency, reports
   http/                request/response, router, handlers, presenters, pagination, JSON
-  adapters/            memory.myna, sqlite.myna, stdlib_server.myna
+  adapters/            memory, sqlite, stdlib server, ASGI
   db/                  migrations.myna, seed.myna
   cli.myna, main.myna  entry points (zipapp is bundled from cli.myna)
   selftest.myna        in-memory end-to-end check
@@ -156,7 +165,7 @@ src/mynastock/
 web/                   static shells and styles for the landing page and demo
 tests/                 unittest sources (compiled to build/py) + Node parity suite
 tools/                 portability gates, import/collision checks, JS assembler, site build
-docs/                  API contract and ADRs
+docs/                  MkDocs site sources, API contract, and ADRs
 site/                  generated Pages artifact (gitignored)
 build/                 generated Python, JavaScript, SQLite, and the .pyz (gitignored)
 ```
@@ -165,17 +174,16 @@ Tests are compiled before they run, so they import the installed-shaped package
 (`mynastock.core`) rather than relative paths. That keeps `unittest discover` and the
 `.pyz` artifact honest.
 
-## Roadmap
+## Documentation
 
-- **M0** — scaffold, portability gates, parity harness. Done.
-- **M1** — ledger, moving average, idempotency, memory + SQLite repositories. Done.
-- **M2** — portable HTTP pipeline, stdlib adapter, CLI, zero-install `.pyz`. Done.
-- **M3** — browser demo assembled from the same kernel, GitHub Pages, source viewer. Done.
-- **M4** — async ASGI adapter, generated OpenAPI, documentation site, v1.0.0. Done.
+The full documentation lives at <https://jhicksdev.github.io/mynastock/docs/>:
+architecture, quickstart, HTTP API, testing strategy, Myna compliance notes, and every
+ADR. The machine-readable schema is
+[`docs/api/openapi.json`](docs/api/openapi.json).
 
-Out of scope for v1: authentication, purchase orders, reservations, FIFO costing,
-multi-currency. Those are documented as intentional boundaries rather than missing
-features.
+Deliberately deferred, and documented as intentional boundaries: authentication/RBAC,
+purchase orders, reservations, FIFO costing, multi-currency, and PyPI packaging. The
+[roadmap](https://jhicksdev.github.io/mynastock/docs/roadmap.html) tracks them.
 
 ## Contributing
 
