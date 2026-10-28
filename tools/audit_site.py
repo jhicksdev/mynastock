@@ -14,6 +14,8 @@ REQUIRED = [
     "demo/app.js",
     "demo/styles.css",
     "data/source.json",
+    "docs/index.html",
+    "docs/api/openapi.json",
     "assets/landing.css",
     "assets/source.css",
     ".nojekyll",
@@ -34,7 +36,12 @@ for page in sorted(SITE.rglob("*.html")):
         ref = reference.split("#")[0].split("?")[0]
         if not ref or ref.startswith(EXTERNAL) or ref.startswith("#"):
             continue
-        target = (page.parent / ref).resolve()
+        if ref.startswith("/"):
+            # Site-absolute paths (MkDocs 404 page) include the project base path.
+            relative = ref[len("/mynastock/"):] if ref.startswith("/mynastock/") else ref.lstrip("/")
+            target = (SITE / relative).resolve()
+        else:
+            target = (page.parent / ref).resolve()
         if ref.endswith("/"):
             target = target / "index.html"
         if not target.exists() and not (target.is_dir() and (target / "index.html").exists()):

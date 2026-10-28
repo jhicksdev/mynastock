@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-10-27
+
 ### Added
 
 - M0 scaffold: portable kernel primitives (`concat`, `is_digits`, `parse_cents`,
@@ -59,6 +61,16 @@ All notable changes to this project are documented here. The format follows
 - `demo-smoke`: boots the bundle under a DOM stub, renders every route, posts a receipt,
   and verifies persistence.
 - ADR-0005 and `docs/demo.md` with the manual QA checklist.
+
+- M4 async ASGI adapter: an exported `~@asgi_app` callable, `asyncio.to_thread`
+  dispatch, body/header/query translation, and integration tests.
+- Generated OpenAPI 3.1 from the route table, a CLI `openapi` command, and a drift gate
+  that fails when `docs/api/openapi.json` is stale.
+- MkDocs documentation site: architecture, quickstart, API, testing, compliance, roadmap,
+  and the ADR set, deployed under `/docs/` and linked from every surface.
+- Release workflow: on `v*`, build the zipapp, write `SHA256SUMS`, and attach the artifact
+  and OpenAPI schema to the GitHub release.
+- Six new tests (76 total) covering ASGI and the generated schema.
 
 ### Changed
 

@@ -1,0 +1,79 @@
+@target(py)
+<asyncio,os,uuid
+<..core:{Err}
+<..ids:{IdGen}
+<..clock:{now_iso}
+<..http.request:{Request,Response}
+<..http.handlers:{dispatch}
+<..http.query:{parse_query}
+<..http.presenters:{problem}
+<..adapters.sqlite:{SqliteRepo}
+
+$UuidGen<IdGen{
+  @init{..init()}
+  @next->s{^@str(uuid.uuid4())}
+}
+
+STATE={"repo":N}
+IDS=UuidGen()
+
++@configure(repo:A){
+  STATE["repo"]=repo
+}
+
+@_ensure{
+  ?STATE$repo!==N{^}
+  path=os.environ.get("MYNASTOCK_DB","mynastock.db")
+  STATE["repo"]=SqliteRepo(path)
+}
+
+@_headers(scope:{s:A})->{s:s}{
+  out={}
+  %pair<-scope$headers{
+    name=pair[0].decode("latin-1").lower()
+    value=pair[1].decode("latin-1")
+    out[name]=value
+  }
+  ^out
+}
+
+@_query(scope:{s:A})->{s:s}{
+  raw=scope$query_string.decode("latin-1")
+  ^parse_query(raw)
+}
+
+~@_body(receive:A)->s{
+  chunks=0b""
+  more=T
+  %? more{
+    message=~receive()
+    part=message$?body
+    ?part!==N{chunks+=part}
+    more=message$?more_body??F
+  }
+  ^chunks.decode("utf-8")
+}
+
+# Plain ASGI callable: uvicorn, hypercorn, or a test harness can drive it.
+~@asgi_app(scope:{s:A},receive:A,send:A){
+  ?scope$type!="http"{^}
+  _ensure()
+
+  request=Request(scope$method,scope$path,_query(scope),_headers(scope),~_body(receive))
+  response=N
+  !{
+    response=~asyncio.to_thread(dispatch,request,STATE$repo,now_iso(),IDS)
+  }!!e{
+    response=problem(Err("internal.error",@str(e)))
+  }
+
+  payload=@u8(response.body)
+  headers=[]
+  %name,value<-response.headers.items(){
+    headers.append((name.lower().encode("latin-1"),value.encode("latin-1")))
+  }
+  headers.append((0b"content-length",@u8(@str(#payload))))
+
+  ~send({"type":"http.response.start","status":response.status,"headers":headers})
+  ~send({"type":"http.response.body","body":payload})
+}

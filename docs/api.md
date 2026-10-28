@@ -1,6 +1,6 @@
 # HTTP API (v1)
 
-Base path: `/api/v1`. JSON in, JSON out. Errors are
+Base path: `/api/v1`. JSON in, JSON out. Machine-readable schema: [openapi.json](api/openapi.json). Errors are
 `application/problem+json` with a stable `code`.
 
 ## Conventions

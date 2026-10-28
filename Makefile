@@ -2,11 +2,12 @@ PYTHON ?= python3
 MYNA ?= myna
 NODE ?= node
 RUFF ?= uvx ruff
+MKDOCS ?= uvx --with mkdocs-material mkdocs
 BUILD ?= build
 
-.PHONY: check lint lint-py test-py test-js build-py js-portable run selftest serve zipapp zipapp-smoke clean
+.PHONY: check lint lint-py test-py test-js build-py js-portable run selftest serve serve-asgi zipapp zipapp-smoke demo demo-smoke docs site openapi openapi-check clean
 
-check: lint test-py lint-py test-js demo demo-smoke site selftest zipapp-smoke
+check: lint test-py lint-py openapi-check test-js demo demo-smoke docs site selftest zipapp-smoke
 
 lint:
 	@bash tools/check_targets.sh
@@ -54,8 +55,13 @@ demo:
 demo-smoke: demo
 	@$(NODE) --test tests/js/demo-smoke.mjs
 
-site: demo
+docs: openapi
+	@$(MKDOCS) build --strict
+
+site: demo docs
 	@python3 tools/build_site.py
+	@rm -rf site/docs
+	@cp -r $(BUILD)/docs site/docs
 	@python3 tools/audit_site.py
 
 test-js: js-portable
@@ -70,6 +76,16 @@ selftest:
 serve:
 	@mkdir -p $(BUILD)
 	@$(MYNA) run src/mynastock/cli.myna serve --db $(BUILD)/mynastock.db $(ARGS)
+
+serve-asgi:
+	@mkdir -p $(BUILD)
+	@PYTHONPATH=$(BUILD)/py MYNASTOCK_DB=$(BUILD)/mynastock.db $(PYTHON) -m uvicorn mynastock.adapters.asgi_server:asgi_app --host 127.0.0.1 --port 8081
+
+openapi: build-py
+	@python3 tools/build_openapi.py
+
+openapi-check: build-py
+	@python3 tools/build_openapi.py --check
 
 zipapp:
 	@mkdir -p $(BUILD)

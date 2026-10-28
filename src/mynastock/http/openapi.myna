@@ -1,0 +1,131 @@
+@target(py, js)
+<..core:{lookup,concat}
+<..version:{VERSION}
+<.router:{Route}
+<.handlers:{routes}
+
++@_method_key(method:s)->s{
+  ??method{
+    "GET"=>{^"get"}
+    "POST"=>{^"post"}
+    "PATCH"=>{^"patch"}
+    "PUT"=>{^"put"}
+    "DELETE"=>{^"delete"}
+    _=>{^"get"}
+  }
+}
+
++@_path(route:Route)->s{
+  ^"/"+concat(route.pattern,"/")
+}
+
++@_tag(pattern:[s])->s{
+  ?#pattern<3{^"system"}
+  ^pattern[2]
+}
+
++@_query(name:s,kind:s,description:s)->{s:A}{
+  ^ {"name":name,"in":"query","required":F,"description":description,"schema":{"type":kind}}
+}
+
++@_query_params(path:s)->[A]{
+  ??path{
+    "/api/v1/products"=>{
+      ^[_query("q","string","SKU or name fragment"),_query("active","boolean","Filter by active state"),_query("limit","integer","Page size"),_query("cursor","string","Opaque cursor")]
+    }
+    "/api/v1/locations"=>{
+      ^[_query("limit","integer","Page size"),_query("cursor","string","Opaque cursor")]
+    }
+    "/api/v1/stock"=>{
+      ^[_query("q","string","SKU or name fragment"),_query("location","string","Location code"),_query("below_reorder","boolean","Only low or out"),_query("limit","integer","Page size"),_query("cursor","string","Opaque cursor")]
+    }
+    "/api/v1/movements"=>{
+      ^[_query("sku","string","Filter by SKU"),_query("location","string","Filter by location code"),_query("type","string","Movement type"),_query("from","string","ISO timestamp lower bound"),_query("to","string","ISO timestamp upper bound"),_query("limit","integer","Page size"),_query("cursor","string","Opaque cursor")]
+    }
+    "/api/v1/reports/valuation"=>{
+      ^[_query("group_by","string","product or location")]
+    }
+    _=>{^[]}
+  }
+}
+
++@_problem(description:s)->{s:A}{
+  ^ {"description":description,"content":{"application/problem+json":{"schema":{"$ref":"#/components/schemas/Problem"}}}}
+}
+
++@_ok(status:s)->{s:A}{
+  ^ {"description":"Success","content":{"application/json":{"schema":{"type":"object"}}}}
+}
+
++@_operation(route:Route,path:s)->{s:A}{
+  params=[]
+  %segment<-route.pattern{
+    ?#segment>0&&segment[0]=="{"{
+      name=segment[1:#segment-1]
+      params.append({"name":name,"in":"path","required":T,"schema":{"type":"string"}})
+    }
+  }
+  %query<-_query_params(path){params.append(query)}
+  ?path=="/api/v1/movements"&&route.method=="POST"{
+    params.append({"name":"Idempotency-Key","in":"header","required":T,"schema":{"type":"string"}})
+  }
+  ?path=="/api/v1/products/{id}"&&route.method=="PATCH"{
+    params.append({"name":"If-Match","in":"header","required":T,"description":"Current version, for example \"3\"","schema":{"type":"string"}})
+  }
+
+  method_key=_method_key(route.method)
+  operation={"summary":`{route.method} {path}`,"operationId":method_key+_identifier(path),"tags":[_tag(route.pattern)],"responses":{"400":_problem("Invalid request"),"404":_problem("Not found"),"500":_problem("Server fault")}}
+  ?#params>0{operation["parameters"]=params}
+  ?route.method=="POST"{
+    operation["responses"]["201"]=_ok("201")
+    operation["responses"]["409"]=_problem("Conflict")
+    operation["requestBody"]={"required":T,"content":{"application/json":{"schema":{"type":"object","additionalProperties":T}}}}
+  }:?route.method=="PATCH"{
+    operation["responses"]["200"]=_ok("200")
+    operation["responses"]["409"]=_problem("Version conflict")
+    operation["requestBody"]={"required":T,"content":{"application/json":{"schema":{"type":"object","additionalProperties":T}}}}
+  }:{
+    operation["responses"]["200"]=_ok("200")
+  }
+  ^operation
+}
+
++@_identifier(path:s)->s{
+  out=""
+  %i<-.. #path{
+    c=path[i]
+    ?c=="/"{out+="_"}
+    :?c=="{"||c=="}"{_}
+    :{out+=c}
+  }
+  ^out
+}
+
++@_schemas->{s:A}{
+  ^ {
+    "Problem":{"type":"object","required":["code","detail","status","title"],"properties":{"type":{"type":"string"},"title":{"type":"string"},"status":{"type":"integer"},"detail":{"type":"string"},"code":{"type":"string"},"field":{"type":["string","null"]},"meta":{"type":["object","null"]}}},
+    "Product":{"type":"object","required":["id","sku","name","unit_cost_cents","version"],"properties":{"id":{"type":"string"},"sku":{"type":"string"},"name":{"type":"string"},"uom":{"type":"string"},"unit_cost_cents":{"type":"integer"},"reorder_point":{"type":"integer"},"reorder_qty":{"type":"integer"},"active":{"type":"boolean"},"version":{"type":"integer"}}},
+    "Location":{"type":"object","required":["id","code","name","kind"],"properties":{"id":{"type":"string"},"code":{"type":"string"},"name":{"type":"string"},"kind":{"type":"string","enum":["warehouse","bin","transit"]},"active":{"type":"boolean"}}},
+    "StockLevel":{"type":"object","properties":{"product_id":{"type":"string"},"location_id":{"type":"string"},"on_hand":{"type":"integer"},"avg_cost_cents":{"type":"integer"},"version":{"type":"integer"},"updated_at":{"type":"string"}}},
+    "Movement":{"type":"object","properties":{"id":{"type":"string"},"operation_id":{"type":"string"},"type":{"type":"string","enum":["receive","issue","adjust","transfer_out","transfer_in"]},"product_id":{"type":"string"},"location_id":{"type":"string"},"qty_delta":{"type":"integer"},"unit_cost_cents":{"type":"integer"},"transfer_id":{"type":["string","null"]},"reason":{"type":["string","null"]},"actor":{"type":"string"},"occurred_at":{"type":"string"}}},
+    "StockRow":{"type":"object","properties":{"sku":{"type":"string"},"product":{"type":"string"},"location":{"type":"string"},"on_hand":{"type":"integer"},"avg_cost_cents":{"type":"integer"},"value_cents":{"type":"integer"},"reorder_point":{"type":"integer"},"status":{"type":"string","enum":["ok","low","out"]}}},
+    "ListEnvelope":{"type":"object","properties":{"items":{"type":"array","items":{"type":"object"}},"next_cursor":{"type":["string","null"]}}}
+  }
+}
+
++@document->{s:A}{
+  paths={}
+  %route<-routes(){
+    path=_path(route)
+    entry=lookup(paths,path)
+    ?entry===N{entry={}}
+    entry[_method_key(route.method)]=_operation(route,path)
+    paths[path]=entry
+  }
+  ^ {
+    "openapi":"3.1.0",
+    "info":{"title":"MynaStock API","version":VERSION,"description":"Inventory ledger, catalogue, and reports. Errors are RFC 9457 problem documents.","license":{"name":"MIT"}},
+    "paths":paths,
+    "components":{"schemas":_schemas()}
+  }
+}

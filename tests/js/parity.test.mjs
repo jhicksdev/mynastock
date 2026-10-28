@@ -7,6 +7,7 @@ import {
   parse_cents,
   format_cents,
   blend,
+  epoch_ms_to_iso,
   stock_status,
   suggested_qty,
   lookup,
@@ -77,6 +78,22 @@ test("blend and stock helpers", () => {
   assert.equal(stock_status(6, 5), "ok");
   assert.equal(suggested_qty(2, 5, 20), 18);
   assert.equal(suggested_qty(9, 5, 20), 0);
+});
+
+test("time formatting", () => {
+  const cases = [
+    [0, "1970-01-01T00:00:00Z"],
+    [999, "1970-01-01T00:00:00Z"],
+    [1000, "1970-01-01T00:00:01Z"],
+    [86399999, "1970-01-01T23:59:59Z"],
+    [-1000, "1969-12-31T23:59:59Z"],
+    [951782400000, "2000-02-29T00:00:00Z"],
+    [1700000000000, "2023-11-14T22:13:20Z"],
+    [4102444800000, "2100-01-01T00:00:00Z"],
+  ];
+  for (const [value, expected] of cases) {
+    assert.equal(epoch_ms_to_iso(value), expected);
+  }
 });
 
 test("lookup uses dynamic keys", () => {

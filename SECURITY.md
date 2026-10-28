@@ -2,7 +2,7 @@
 
 ## Supported versions
 
-MynaStock is pre-1.0. Only the latest commit on `main` receives fixes.
+MynaStock 1.x is supported. Only the latest release and `main` receive fixes.
 
 ## Reporting a vulnerability
 

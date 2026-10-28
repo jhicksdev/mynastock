@@ -108,7 +108,7 @@ def render_source(entries) -> str:
 <body>
   <header>
     <a class="brand" href="./">Myna<span>Stock</span></a>
-    <nav><a href="./demo/">Live demo</a><a href="./">Home</a><a href="https://github.com/jhicksdev/mynastock">GitHub</a></nav>
+    <nav><a href="./demo/">Live demo</a><a href="./docs/">Docs</a><a href="./">Home</a><a href="https://github.com/jhicksdev/mynastock">GitHub</a></nav>
   </header>
   <main>
     <h1>Source viewer</h1>

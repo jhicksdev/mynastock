@@ -1,0 +1,82 @@
+@target(py)
+<unittest,asyncio
+<mynastock.adapters.asgi_server:{asgi_app,configure}
+<mynastock.adapters.memory:{new_memory_repo}
+<mynastock.core:{lookup}
+
+STATE={"body":"","sent":[]}
+
+~@_receive->{s:A}{
+  ^{"type":"http.request","body":@u8(STATE$body),"more_body":F}
+}
+
+~@_send(message:A){
+  STATE["sent"].append(message)
+}
+
+~@_drive(scope:{s:A}){
+  ~asgi_app(scope,_receive,_send)
+}
+
+$AsgiTests<unittest.TestCase{
+  @setUp{
+    configure(new_memory_repo())
+    STATE["body"]=""
+    STATE["sent"]=[]
+  }
+
+  @_request(method:s,path:s,body:s="",query:s="",headers:A=N)->(i,s){
+    STATE["body"]=body
+    STATE["sent"]=[]
+    scope={"type":"http","method":method,"path":path,"query_string":@u8(query),"headers":headers??[]}
+    asyncio.run(_drive(scope))
+    start=STATE$sent[0]
+    payload=STATE$sent[1]
+    ^start$status,payload$body.decode("utf-8")
+  }
+
+  @_json(method:s,path:s,body:A=N,query:s="",headers:A=N)->(i,A){
+    text=""
+    ?body!==N{text=@J(body)}
+    status,response_body=._request(method,path,text,query,headers)
+    ^status,@j(response_body)
+  }
+
+  @test_health{
+    status,body=._json("GET","/api/v1/health")
+    self.assertEqual(status,200)
+    self.assertEqual(body$status,"ok")
+  }
+
+  @test_create_and_move{
+    status,_=._json("POST","/api/v1/products",{"sku":"WID-001","name":"Widget","unit_cost_cents":250,"reorder_point":5,"reorder_qty":20},headers=[(0b"content-type",0b"application/json")])
+    self.assertEqual(status,201)
+    status,_=._json("POST","/api/v1/locations",{"code":"WH1","name":"Main","kind":"warehouse"},headers=[(0b"content-type",0b"application/json")])
+    self.assertEqual(status,201)
+
+    movement={"type":"receive","sku":"WID-001","location":"WH1","qty":10,"unit_cost_cents":250}
+    status,_=._json("POST","/api/v1/movements",movement,headers=[(0b"content-type",0b"application/json"),(0b"idempotency-key",0b"asgi-1")])
+    self.assertEqual(status,201)
+    status,_=._json("POST","/api/v1/movements",movement,headers=[(0b"content-type",0b"application/json"),(0b"idempotency-key",0b"asgi-1")])
+    self.assertEqual(status,200)
+
+    status,stock=._json("GET","/api/v1/stock")
+    self.assertEqual(status,200)
+    self.assertEqual(stock$items[0]$on_hand,10)
+  }
+
+  @test_query_and_errors{
+    status,_=._json("GET","/api/v1/nope")
+    self.assertEqual(status,404)
+
+    status,body=._json("GET","/api/v1/stock",query="below_reorder=true")
+    self.assertEqual(status,200)
+    self.assertEqual(#body$items,0)
+
+    status,body=._json("POST","/api/v1/health")
+    self.assertEqual(status,405)
+    self.assertEqual(body$code,"method.not_allowed")
+  }
+}
+
+@main{unittest.main()}

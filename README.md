@@ -8,10 +8,11 @@
 
 MynaStock is an inventory management system written in [Myna](https://github.com/jhicksdev/myna), an ultra-dense language that transpiles 1:1 to Python 3.12 and to a portable subset of JavaScript. One portable kernel powers a zero-dependency HTTP server today, with an ASGI deployment and a static browser demo compiled from the same source on the roadmap.
 
-> **Status: M3 (demo).** The catalogue, ledger, idempotent posting, repositories,
-> portable HTTP pipeline, stdlib server, zero-install `.pyz`, and the browser demo are
-> implemented. **Live demo:** <https://jhicksdev.github.io/mynastock/demo/>.
-> The ASGI adapter, generated OpenAPI, and documentation site land in M4.
+> **v1.0.0.** Catalogue, append-only ledger, idempotent posting, memory/SQLite
+> repositories, portable HTTP pipeline, stdlib and async ASGI servers, zero-install
+> `.pyz`, generated OpenAPI, and a static browser demo.
+> **Demo:** <https://jhicksdev.github.io/mynastock/demo/> ·
+> **Docs:** <https://jhicksdev.github.io/mynastock/docs/>
 
 ## Quickstart
 
@@ -21,7 +22,7 @@ Requirements: `myna-lang==0.4.2`, Python 3.12+, Node 22+, and `uv` (only for the
 git clone https://github.com/jhicksdev/mynastock.git
 cd mynastock
 
-make check                          # gates, 68 tests, JS parity, demo, site, zipapp
+make check                          # gates, 76 tests, JS parity, demo, site, zipapp
 make serve                          # SQLite at build/mynastock.db, http://127.0.0.1:8080
 make selftest                       # the whole pipeline, in memory, no socket
 make site                           # landing page + browser demo + source viewer
@@ -49,7 +50,7 @@ curl -s 'localhost:8080/api/v1/stock?below_reorder=true'
 | Target | What it proves |
 |---|---|
 | `lint` | target declarations, portable-import edges, forbidden constructs, no local/global name collisions |
-| `test-py` | 68 tests: kernel, ledger, repositories, router, handlers, stdlib API |
+| `test-py` | 76 tests: kernel, ledger, repositories, router, handlers, stdlib API |
 | `lint-py` | generated Python has no syntax or undefined-name errors |
 | `test-js` | the same scenarios under Node against the assembled ES module |
 | `demo-smoke` | the browser bundle boots, renders every route, and writes through the pipeline |
@@ -170,7 +171,7 @@ Tests are compiled before they run, so they import the installed-shaped package
 - **M1** — ledger, moving average, idempotency, memory + SQLite repositories. Done.
 - **M2** — portable HTTP pipeline, stdlib adapter, CLI, zero-install `.pyz`. Done.
 - **M3** — browser demo assembled from the same kernel, GitHub Pages, source viewer. Done.
-- **M4** — ASGI adapter with async routes, generated OpenAPI, documentation site, v1.0.0.
+- **M4** — async ASGI adapter, generated OpenAPI, documentation site, v1.0.0. Done.
 
 Out of scope for v1: authentication, purchase orders, reservations, FIFO costing,
 multi-currency. Those are documented as intentional boundaries rather than missing

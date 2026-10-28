@@ -1,5 +1,5 @@
 @target(py)
-<sys
+<sys,json
 <.version:{NAME,VERSION}
 <.core:{is_digits}
 <.clock:{now_iso}
@@ -7,11 +7,12 @@
 <.adapters.sqlite:{SqliteRepo}
 <.adapters.stdlib_server:{serve}
 <.db.seed:{seed_demo}
+<.http.openapi:{document}
 <.selftest:{selftest}
 
 +@usage{
   p(`{NAME} {VERSION}`)
-  p("usage: mynastock <serve|seed|--selftest|version> [--db PATH] [--port N]")
+  p("usage: mynastock <serve|seed|openapi|--selftest|version> [--db PATH] [--port N]")
 }
 
 +@_option(args:[s],name:s,default:s)->s{
@@ -59,6 +60,10 @@
     }
     "--selftest"=>{
       ^selftest()
+    }
+    "openapi"=>{
+      p(json.dumps(document(),indent=2))
+      ^0
     }
     _=>{
       usage()

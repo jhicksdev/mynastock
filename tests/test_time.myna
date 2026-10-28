@@ -1,0 +1,33 @@
+@target(py)
+<unittest
+<datetime:{datetime,timezone}
+<mynastock.core:{epoch_ms_to_iso}
+
+$TimeTests<unittest.TestCase{
+  @test_known_timestamps{
+    cases=[
+      [0,"1970-01-01T00:00:00Z"],
+      [999,"1970-01-01T00:00:00Z"],
+      [1000,"1970-01-01T00:00:01Z"],
+      [86399999,"1970-01-01T23:59:59Z"],
+      [-1000,"1969-12-31T23:59:59Z"],
+      [951782400000,"2000-02-29T00:00:00Z"],
+      [1700000000000,"2023-11-14T22:13:20Z"],
+      [4102444800000,"2100-01-01T00:00:00Z"]
+    ]
+    %case<-cases{
+      self.assertEqual(epoch_ms_to_iso(case[0]),case[1])
+    }
+  }
+
+  @test_matches_python_datetime{
+    %i<-.. 200{
+      seconds=1700000000+i*997
+      millis=seconds*1000+500
+      expected=datetime.fromtimestamp(seconds,timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+      self.assertEqual(epoch_ms_to_iso(millis),expected)
+    }
+  }
+}
+
+@main{unittest.main()}

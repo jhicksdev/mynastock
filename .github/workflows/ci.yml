@@ -43,6 +43,7 @@ jobs:
       - run: pip install myna-lang==0.4.2 ruff
       - run: make test-py
       - run: make lint-py RUFF=ruff
+      - run: make openapi-check
       - run: make selftest
       - run: make zipapp-smoke
 
@@ -59,10 +60,10 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: "22"
-      - run: pip install myna-lang==0.4.2
+      - run: pip install myna-lang==0.4.2 mkdocs-material
       - run: make test-js
       - run: make demo-smoke
-      - run: make site
+      - run: make site MKDOCS=mkdocs
 
   check:
     if: always()

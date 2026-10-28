@@ -1,0 +1,58 @@
+site_name: MynaStock
+site_description: An inventory management system written in Myna, with one portable kernel for Python and the browser.
+site_url: https://jhicksdev.github.io/mynastock/docs/
+repo_url: https://github.com/jhicksdev/mynastock
+repo_name: jhicksdev/mynastock
+edit_uri: edit/main/docs/
+docs_dir: docs
+site_dir: build/docs
+copyright: MIT licensed. Built with Myna.
+
+theme:
+  name: material
+  language: en
+  font: false
+  palette:
+    - scheme: default
+      primary: teal
+      accent: amber
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - scheme: slate
+      primary: teal
+      accent: amber
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+  features:
+    - navigation.sections
+    - content.code.copy
+    - search.suggest
+    - search.highlight
+
+nav:
+  - Home: index.md
+  - Quickstart: quickstart.md
+  - Architecture: architecture.md
+  - HTTP API: api.md
+  - Browser demo: demo.md
+  - Testing: testing.md
+  - Myna compliance: compliance.md
+  - Roadmap: roadmap.md
+  - Decisions:
+      - Index: adr/index.md
+      - 0001 Portable kernel: adr/0001-portable-core.md
+      - 0002 Ledger and costing: adr/0002-ledger-and-costing.md
+      - 0003 JavaScript assembly: adr/0003-js-assembly.md
+      - 0004 HTTP contract: adr/0004-http-contract.md
+      - 0005 Browser demo: adr/0005-browser-demo.md
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - pymdownx.details
+  - pymdownx.superfences
+
+use_directory_urls: false
+strict: true

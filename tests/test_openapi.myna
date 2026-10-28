@@ -1,0 +1,57 @@
+@target(py)
+<unittest
+<mynastock.core:{concat,lookup}
+<mynastock.version:{VERSION}
+<mynastock.http.handlers:{routes}
+<mynastock.http.openapi:{document}
+
+$OpenApiTests<unittest.TestCase{
+  @_method_key(method:s)->s{
+    ??method{
+      "GET"=>{^"get"}
+      "POST"=>{^"post"}
+      "PATCH"=>{^"patch"}
+      _=>{^"get"}
+    }
+  }
+
+  @_find_param(params:[A],name:s)->A?{
+    %param<-params{
+      ?param$name==name{^param}
+    }
+    ^N
+  }
+
+  @test_document_shape{
+    doc=document()
+    self.assertEqual(doc$openapi,"3.1.0")
+    self.assertEqual(doc$info$version,VERSION)
+    self.assertEqual(doc$components$schemas$Problem$type,"object")
+    self.assertEqual(#doc$paths,8)
+    !?@j(@J(doc))$paths!==N
+  }
+
+  @test_every_route_is_documented{
+    doc=document()
+    %route<-routes(){
+      path="/"+concat(route.pattern,"/")
+      entry=lookup(doc$paths,path)
+      !?entry!==N
+      !?lookup(entry,._method_key(route.method))!==N
+    }
+  }
+
+  @test_security_and_patch_parameters{
+    movements=lookup(document()$paths,"/api/v1/movements")$post
+    idempotency=._find_param(movements$parameters,"Idempotency-Key")
+    !?idempotency!==N
+    self.assertEqual(idempotency$in,"header")
+
+    patch=lookup(document()$paths,"/api/v1/products/{id}")$patch
+    if_match=._find_param(patch$parameters,"If-Match")
+    !?if_match!==N
+    self.assertEqual(if_match$required,T)
+  }
+}
+
+@main{unittest.main()}
