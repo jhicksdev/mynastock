@@ -6,6 +6,16 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-10-28
+
+### Changed
+
+- Documentation alignment for the 1.0 line: the README roadmap is replaced by a
+  Documentation section, ASGI and Starlette references describe what shipped, artifact
+  size and test counts are current, and the API example reports 1.0.1.
+- CONTRIBUTING documents the OpenAPI drift gate, docs build, and ASGI server commands.
+- The landing page and docs report 76 tests and the 24 KB artifact.
+
 ## [1.0.0] - 2026-10-27
 
 ### Added

@@ -1,7 +1,8 @@
 # Roadmap
 
 MynaStock 1.0.0 shipped with the kernel, both server transports, the static demo,
-generated OpenAPI, and documentation verified together.
+generated OpenAPI, and documentation verified together. 1.0.1 is a documentation
+release: no runtime behavior changed.
 
 ## Done
 

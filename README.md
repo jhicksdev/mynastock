@@ -8,7 +8,7 @@
 
 MynaStock is an inventory management system written in [Myna](https://github.com/jhicksdev/myna), an ultra-dense language that transpiles 1:1 to Python 3.12 and to a portable subset of JavaScript. One portable kernel powers a zero-dependency HTTP server, an async ASGI deployment, and a static browser demo compiled from the same source.
 
-> **v1.0.0.** Catalogue, append-only ledger, idempotent posting, memory/SQLite
+> **v1.0.1.** Catalogue, append-only ledger, idempotent posting, memory/SQLite
 > repositories, portable HTTP pipeline, stdlib and async ASGI servers, zero-install
 > `.pyz`, generated OpenAPI, and a static browser demo.
 > **Demo:** <https://jhicksdev.github.io/mynastock/demo/> ·

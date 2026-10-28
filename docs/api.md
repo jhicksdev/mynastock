@@ -20,7 +20,7 @@ Base path: `/api/v1`. JSON in, JSON out. Machine-readable schema: [openapi.json]
 ### `GET /health`
 
 ```json
-{"status": "ok", "name": "MynaStock", "version": "1.0.0"}
+{"status": "ok", "name": "MynaStock", "version": "1.0.1"}
 ```
 
 ### `GET /products`
